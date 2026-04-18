@@ -12,13 +12,28 @@ public indirect enum ToolValue: Codable, Equatable, Sendable {
 
 public struct ToolInvocation: Codable, Equatable, Sendable {
     public let toolName: String
-    public let arguments: [String: ToolValue]
+    public let input: ToolValue
 
     public init(
         toolName: String,
-        arguments: [String: ToolValue] = [:]
+        input: ToolValue = .object([:])
     ) {
         self.toolName = toolName
-        self.arguments = arguments
+        self.input = input
+    }
+
+    public init(
+        toolName: String,
+        arguments: [String: ToolValue]
+    ) {
+        self.init(toolName: toolName, input: .object(arguments))
+    }
+
+    public var arguments: [String: ToolValue]? {
+        guard case let .object(arguments) = input else {
+            return nil
+        }
+
+        return arguments
     }
 }

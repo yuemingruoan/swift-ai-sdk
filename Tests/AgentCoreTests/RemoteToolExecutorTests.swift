@@ -35,8 +35,11 @@ struct RemoteToolExecutorTests {
             arguments: ["query": .string("swift")]
         )
 
-        await #expect(throws: ToolExecutorError.self) {
-            try await executor.invoke(invocation)
+        do {
+            _ = try await executor.invoke(invocation)
+            Issue.record("Expected missing remote transport error")
+        } catch let error as ToolExecutorError {
+            #expect(error == .missingRemoteTransport(id: "mcp"))
         }
     }
 }

@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import AgentCore
 
@@ -14,6 +15,22 @@ struct ToolRegistryTests {
 
         #expect(await registry.descriptor(named: "echo") != nil)
         #expect(await registry.descriptor(named: "search") != nil)
+    }
+
+    @Test func local_descriptor_does_not_serialize_reflected_swift_type_names() throws {
+        let descriptor = ToolDescriptor.local(
+            name: "echo",
+            input: EchoInput.self,
+            output: EchoOutput.self
+        )
+
+        let encoded = try JSONEncoder().encode(descriptor)
+        let json = String(decoding: encoded, as: UTF8.self)
+
+        #expect(!json.contains("EchoInput"))
+        #expect(!json.contains("EchoOutput"))
+        #expect(!json.contains("inputType"))
+        #expect(!json.contains("outputType"))
     }
 }
 

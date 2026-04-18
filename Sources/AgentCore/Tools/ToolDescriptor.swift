@@ -14,38 +14,20 @@ public indirect enum ToolInputSchema: Codable, Equatable, Sendable {
     case object(properties: [String: ToolInputSchema] = [:], required: [String] = [])
 }
 
-public struct ToolTypeReference: Codable, Equatable, Sendable {
-    public let name: String
-
-    public init(name: String) {
-        self.name = name
-    }
-
-    public init<T>(_ type: T.Type) {
-        self.name = String(reflecting: type)
-    }
-}
-
 public struct ToolDescriptor: Codable, Equatable, Sendable {
     public let name: String
     public let executionKind: ToolExecutionKind
-    public let inputType: ToolTypeReference?
-    public let outputType: ToolTypeReference?
     public let remoteTransportID: String?
     public let inputSchema: ToolInputSchema?
 
     public init(
         name: String,
         executionKind: ToolExecutionKind,
-        inputType: ToolTypeReference? = nil,
-        outputType: ToolTypeReference? = nil,
         remoteTransportID: String? = nil,
         inputSchema: ToolInputSchema? = nil
     ) {
         self.name = name
         self.executionKind = executionKind
-        self.inputType = inputType
-        self.outputType = outputType
         self.remoteTransportID = remoteTransportID
         self.inputSchema = inputSchema
     }
@@ -57,9 +39,7 @@ public struct ToolDescriptor: Codable, Equatable, Sendable {
     ) -> Self {
         ToolDescriptor(
             name: name,
-            executionKind: .local,
-            inputType: ToolTypeReference(input),
-            outputType: ToolTypeReference(output)
+            executionKind: .local
         )
     }
 
