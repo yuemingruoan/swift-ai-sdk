@@ -159,14 +159,69 @@ struct OpenAIResponsesClientTests {
         #expect(lastRequest.previousResponseID == "resp_prev")
         #expect(lastRequest.input.count == 1)
     }
+
+    @Test func client_can_return_projected_output() async throws {
+        let transport = StubResponsesTransport(
+            response: OpenAIResponse(
+                id: "resp_projected",
+                status: .completed,
+                output: [
+                    .message(
+                        .init(
+                            id: "msg_123",
+                            role: .assistant,
+                            content: [.outputText("hello")]
+                        )
+                    ),
+                    .functionCall(
+                        .init(
+                            callID: "call_123",
+                            name: "lookup_weather",
+                            arguments: "{\"city\":\"Paris\"}"
+                        )
+                    ),
+                ]
+            )
+        )
+        let client = OpenAIResponsesClient(transport: transport)
+
+        let projection = try await client.createProjectedResponse(
+            model: "gpt-5.4",
+            messages: [.userText("hello")]
+        )
+
+        #expect(projection.messages == [
+            AgentMessage(role: .assistant, parts: [.text("hello")]),
+        ])
+        #expect(projection.toolCalls == [
+            OpenAIResponseToolCall(
+                callID: "call_123",
+                invocation: ToolInvocation(
+                    toolName: "lookup_weather",
+                    arguments: ["city": .string("Paris")]
+                )
+            ),
+        ])
+    }
 }
 
 private actor StubResponsesTransport: OpenAIResponsesTransport {
     var lastRequest: OpenAIResponseRequest?
+    let response: OpenAIResponse
+
+    init(
+        response: OpenAIResponse = OpenAIResponse(
+            id: "resp_new",
+            status: .completed,
+            output: []
+        )
+    ) {
+        self.response = response
+    }
 
     func createResponse(_ request: OpenAIResponseRequest) async throws -> OpenAIResponse {
         lastRequest = request
-        return OpenAIResponse(id: "resp_new", status: .completed, output: [])
+        return response
     }
 }
 

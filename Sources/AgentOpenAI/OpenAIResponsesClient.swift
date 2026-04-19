@@ -29,4 +29,24 @@ public struct OpenAIResponsesClient: Sendable {
     public func createResponse(_ request: OpenAIResponseRequest) async throws -> OpenAIResponse {
         try await transport.createResponse(request)
     }
+
+    public func createProjectedResponse(
+        model: String,
+        messages: [AgentMessage],
+        previousResponseID: String? = nil
+    ) async throws -> OpenAIResponseProjection {
+        let response = try await createResponse(
+            model: model,
+            messages: messages,
+            previousResponseID: previousResponseID
+        )
+        return try response.projectedOutput()
+    }
+
+    public func createProjectedResponse(
+        _ request: OpenAIResponseRequest
+    ) async throws -> OpenAIResponseProjection {
+        let response = try await createResponse(request)
+        return try response.projectedOutput()
+    }
 }
