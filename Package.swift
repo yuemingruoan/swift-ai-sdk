@@ -1,5 +1,6 @@
 // swift-tools-version: 6.0
 
+import CompilerPluginSupport
 import PackageDescription
 
 let package = Package(
@@ -14,11 +15,33 @@ let package = Package(
     ],
     products: [
         .library(name: "AgentCore", targets: ["AgentCore"]),
+        .library(name: "AgentMacros", targets: ["AgentMacros"]),
+    ],
+    dependencies: [
+        .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "600.0.0"),
     ],
     targets: [
         .target(
             name: "AgentCore",
             path: "Sources/AgentCore"
+        ),
+        .macro(
+            name: "AgentMacrosPlugin",
+            dependencies: [
+                .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxBuilder", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
+            ],
+            path: "Sources/AgentMacrosPlugin"
+        ),
+        .target(
+            name: "AgentMacros",
+            dependencies: [
+                "AgentCore",
+                "AgentMacrosPlugin",
+            ],
+            path: "Sources/AgentMacros"
         ),
         .testTarget(
             name: "AgentCoreTests",
@@ -26,6 +49,15 @@ let package = Package(
                 "AgentCore",
             ],
             path: "Tests/AgentCoreTests"
+        ),
+        .testTarget(
+            name: "AgentMacrosTests",
+            dependencies: [
+                "AgentMacros",
+                "AgentMacrosPlugin",
+                .product(name: "SwiftSyntaxMacrosTestSupport", package: "swift-syntax"),
+            ],
+            path: "Tests/AgentMacrosTests"
         ),
     ]
 )
