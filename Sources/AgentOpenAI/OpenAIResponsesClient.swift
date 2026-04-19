@@ -7,9 +7,14 @@ public protocol OpenAIResponsesTransport: Sendable {
 
 public struct OpenAIResponsesClient: Sendable {
     private let transport: any OpenAIResponsesTransport
+    private let streamingTransport: (any OpenAIResponsesStreamingTransport)?
 
-    public init(transport: any OpenAIResponsesTransport) {
+    public init(
+        transport: any OpenAIResponsesTransport,
+        streamingTransport: (any OpenAIResponsesStreamingTransport)? = nil
+    ) {
         self.transport = transport
+        self.streamingTransport = streamingTransport
     }
 
     public func createResponse(
@@ -48,6 +53,50 @@ public struct OpenAIResponsesClient: Sendable {
     ) async throws -> OpenAIResponseProjection {
         let response = try await createResponse(request)
         return try response.projectedOutput()
+    }
+
+    public func projectedResponseEvents(
+        _ request: OpenAIResponseRequest,
+        stream: Bool = false
+    ) -> AsyncThrowingStream<AgentStreamEvent, Error> {
+        if stream, let streamingTransport {
+            return OpenAIResponsesStreamingClient(transport: streamingTransport)
+                .streamProjectedResponse(request)
+        }
+
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let projection = try await createProjectedResponse(request)
+                    for event in projection.agentStreamEvents() {
+                        continuation.yield(event)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
+
+    public func projectedResponseEvents(
+        model: String,
+        messages: [AgentMessage],
+        previousResponseID: String? = nil,
+        stream: Bool = false
+    ) throws -> AsyncThrowingStream<AgentStreamEvent, Error> {
+        projectedResponseEvents(
+            try OpenAIResponseRequest(
+                model: model,
+                messages: messages,
+                previousResponseID: previousResponseID
+            ),
+            stream: stream
+        )
     }
 }
 

@@ -244,6 +244,106 @@ struct OpenAIResponsesClientTests {
             ),
         ])
     }
+
+    @Test func unified_client_api_returns_non_streaming_projection_when_stream_is_false() async throws {
+        let transport = StubResponsesTransport(
+            response: OpenAIResponse(
+                id: "resp_projected",
+                status: .completed,
+                output: [
+                    .message(
+                        .init(
+                            id: "msg_123",
+                            role: .assistant,
+                            content: [.outputText("hello")]
+                        )
+                    ),
+                ]
+            )
+        )
+        let client = OpenAIResponsesClient(
+            transport: transport,
+            streamingTransport: StubResponsesStreamingTransport(events: [])
+        )
+
+        var events: [AgentStreamEvent] = []
+        for try await event in try client.projectedResponseEvents(
+            model: "gpt-5.4",
+            messages: [AgentMessage.userText("hello")],
+            stream: false
+        ) {
+            events.append(event)
+        }
+
+        #expect(events == [
+            .messagesCompleted([
+                AgentMessage(role: .assistant, parts: [.text("hello")]),
+            ]),
+        ])
+    }
+
+    @Test func unified_client_api_uses_streaming_transport_when_stream_is_true() async throws {
+        let client = OpenAIResponsesClient(
+            transport: StubResponsesTransport(),
+            streamingTransport: StubResponsesStreamingTransport(
+                events: [
+                    OpenAIResponseStreamEvent.outputTextDelta(
+                        OpenAIResponseTextDeltaEvent(
+                            itemID: "msg_123",
+                            outputIndex: 0,
+                            contentIndex: 0,
+                            delta: "Hel",
+                            sequenceNumber: 1
+                        )
+                    ),
+                    OpenAIResponseStreamEvent.responseCompleted(
+                        OpenAIResponse(
+                            id: "resp_123",
+                            status: OpenAIResponseStatus.completed,
+                            output: [
+                                OpenAIResponseOutputItem.message(
+                                    OpenAIResponseMessage(
+                                        id: "msg_123",
+                                        role: OpenAIInputMessageRole.assistant,
+                                        content: [OpenAIResponseMessageContent.outputText("hello")]
+                                    )
+                                ),
+                            ]
+                        )
+                    ),
+                ]
+            )
+        )
+
+        var events: [AgentStreamEvent] = []
+        for try await event in try client.projectedResponseEvents(
+            model: "gpt-5.4",
+            messages: [AgentMessage.userText("hello")],
+            stream: true
+        ) {
+            events.append(event)
+        }
+
+        #expect(events == [
+            .textDelta("Hel"),
+            .messagesCompleted([
+                AgentMessage(role: .assistant, parts: [.text("hello")]),
+            ]),
+        ])
+    }
+}
+
+private struct StubResponsesStreamingTransport: OpenAIResponsesStreamingTransport {
+    let events: [OpenAIResponseStreamEvent]
+
+    func streamResponse(_ request: OpenAIResponseRequest) -> AsyncThrowingStream<OpenAIResponseStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            for event in events {
+                continuation.yield(event)
+            }
+            continuation.finish()
+        }
+    }
 }
 
 private actor StubResponsesTransport: OpenAIResponsesTransport {
