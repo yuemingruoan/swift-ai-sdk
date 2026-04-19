@@ -1,18 +1,34 @@
 import SwiftSyntax
 
 enum ToolSignatureParser {
-    static func parseExplicitName(from attribute: AttributeSyntax) -> String? {
-        guard
-            case .argumentList(let arguments) = attribute.arguments,
-            let firstArgument = arguments.first,
-            let literal = firstArgument.expression.as(StringLiteralExprSyntax.self)
-        else {
-            return nil
+    enum ExplicitNameParseResult: Equatable {
+        case missing
+        case valid(String)
+        case invalid
+    }
+
+    static func parseExplicitName(from attribute: AttributeSyntax) -> ExplicitNameParseResult {
+        guard case .argumentList(let arguments) = attribute.arguments else {
+            return .missing
+        }
+        guard let firstArgument = arguments.first else {
+            return .missing
+        }
+        guard arguments.count == 1 else {
+            return .invalid
+        }
+        guard let literal = firstArgument.expression.as(StringLiteralExprSyntax.self) else {
+            return .invalid
         }
 
-        return literal.segments.compactMap { segment in
+        let segments = literal.segments.compactMap { segment in
             segment.as(StringSegmentSyntax.self)?.content.text
-        }.joined()
+        }
+        guard segments.count == literal.segments.count else {
+            return .invalid
+        }
+
+        return .valid(segments.joined())
     }
 
     static func defaultIdentifier(from declaration: some DeclGroupSyntax) -> String? {

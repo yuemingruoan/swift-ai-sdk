@@ -6,11 +6,14 @@ import SwiftSyntaxMacros
 
 public enum ToolMacroDiagnostic: DiagnosticMessage {
     case missingToolName
+    case invalidToolNameArgument
 
     public var message: String {
         switch self {
         case .missingToolName:
             "@Tool requires an explicit string argument or a named type declaration"
+        case .invalidToolNameArgument:
+            "@Tool only accepts a static string literal argument"
         }
     }
 
@@ -18,6 +21,8 @@ public enum ToolMacroDiagnostic: DiagnosticMessage {
         switch self {
         case .missingToolName:
             MessageID(domain: "ToolMacroDiagnostic", id: "missingToolName")
+        case .invalidToolNameArgument:
+            MessageID(domain: "ToolMacroDiagnostic", id: "invalidToolNameArgument")
         }
     }
 
@@ -36,8 +41,17 @@ public struct ToolMacro: MemberMacro {
         providingMembersOf declaration: some DeclGroupSyntax,
         in context: some MacroExpansionContext
     ) throws -> [DeclSyntax] {
-        let toolName = ToolSignatureParser.parseExplicitName(from: node)
-            ?? ToolSignatureParser.defaultIdentifier(from: declaration)
+        let toolName: String?
+        switch ToolSignatureParser.parseExplicitName(from: node) {
+        case .valid(let explicitName):
+            toolName = explicitName
+        case .invalid:
+            context.diagnose(ToolMacroDiagnostic.invalidToolNameArgument.diagnose(at: Syntax(node)))
+            return []
+        case .missing:
+            toolName = ToolSignatureParser.defaultIdentifier(from: declaration)
+        }
+
         guard let toolName else {
             context.diagnose(ToolMacroDiagnostic.missingToolName.diagnose(at: Syntax(declaration)))
             return []

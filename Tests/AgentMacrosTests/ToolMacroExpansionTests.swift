@@ -54,7 +54,28 @@ struct ToolMacroExpansionTests {
             """,
             diagnostics: [
                 .init(
-                    message: ToolMacroDiagnostic.missingToolName.message,
+                    message: "@Tool requires an explicit string argument or a named type declaration",
+                    line: 1,
+                    column: 1
+                )
+            ],
+            macros: ["Tool": ToolMacro.self]
+        )
+    }
+
+    @Test
+    func tool_macro_reports_diagnostic_for_non_string_explicit_name() {
+        assertMacroExpansion(
+            """
+            @Tool(42)
+            struct EchoTool {}
+            """,
+            expandedSource: """
+            struct EchoTool {}
+            """,
+            diagnostics: [
+                .init(
+                    message: "@Tool only accepts a static string literal argument",
                     line: 1,
                     column: 1
                 )
