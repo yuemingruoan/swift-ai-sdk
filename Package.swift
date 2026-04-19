@@ -15,6 +15,7 @@ let package = Package(
     ],
     products: [
         .library(name: "AgentCore", targets: ["AgentCore"]),
+        .library(name: "AgentPersistence", targets: ["AgentPersistence"]),
         .library(name: "AgentMacros", targets: ["AgentMacros"]),
     ],
     dependencies: [
@@ -24,6 +25,13 @@ let package = Package(
         .target(
             name: "AgentCore",
             path: "Sources/AgentCore"
+        ),
+        .target(
+            name: "AgentPersistence",
+            dependencies: [
+                "AgentCore",
+            ],
+            path: "Sources/AgentPersistence"
         ),
         .macro(
             name: "AgentMacrosPlugin",
@@ -50,6 +58,14 @@ let package = Package(
                 "AgentCore",
             ],
             path: "Tests/AgentCoreTests"
+        ),
+        .testTarget(
+            name: "AgentPersistenceTests",
+            dependencies: [
+                "AgentPersistence",
+                "AgentCore",
+            ],
+            path: "Tests/AgentPersistenceTests"
         ),
         .testTarget(
             name: "AgentMacrosTests",
