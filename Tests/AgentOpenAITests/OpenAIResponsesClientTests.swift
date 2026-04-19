@@ -46,6 +46,27 @@ struct OpenAIResponsesClientTests {
         }
     }
 
+    @Test func request_builder_supports_function_call_output_items() throws {
+        let request = OpenAIResponseRequest(
+            model: "gpt-5.4",
+            input: [
+                .functionCallOutput(
+                    .init(
+                        callID: "call_123",
+                        output: .text("{\"ok\":true}")
+                    )
+                ),
+            ]
+        )
+
+        let payload = try jsonObject(for: request)
+        let input = try #require(payload["input"] as? [[String: Any]])
+        #expect(input.count == 1)
+        #expect(input[0]["type"] as? String == "function_call_output")
+        #expect(input[0]["call_id"] as? String == "call_123")
+        #expect(input[0]["output"] as? String == "{\"ok\":true}")
+    }
+
     @Test func client_builds_request_and_delegates_to_transport() async throws {
         let transport = StubResponsesTransport()
         let client = OpenAIResponsesClient(transport: transport)

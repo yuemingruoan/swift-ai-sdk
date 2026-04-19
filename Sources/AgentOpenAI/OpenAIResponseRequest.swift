@@ -3,12 +3,12 @@ import Foundation
 
 public struct OpenAIResponseRequest: Codable, Equatable, Sendable {
     public var model: String
-    public var input: [OpenAIInputMessage]
+    public var input: [OpenAIResponseInputItem]
     public var previousResponseID: String?
 
     public init(
         model: String,
-        input: [OpenAIInputMessage],
+        input: [OpenAIResponseInputItem],
         previousResponseID: String? = nil
     ) {
         self.model = model
@@ -23,7 +23,7 @@ public struct OpenAIResponseRequest: Codable, Equatable, Sendable {
     ) throws {
         self.init(
             model: model,
-            input: try messages.map(OpenAIInputMessage.init(agentMessage:)),
+            input: try messages.map { .message(try .init(agentMessage: $0)) },
             previousResponseID: previousResponseID
         )
     }
@@ -32,6 +32,41 @@ public struct OpenAIResponseRequest: Codable, Equatable, Sendable {
         case model
         case input
         case previousResponseID = "previous_response_id"
+    }
+}
+
+public enum OpenAIResponseInputItem: Equatable, Sendable {
+    case message(OpenAIInputMessage)
+    case functionCallOutput(OpenAIFunctionCallOutput)
+}
+
+extension OpenAIResponseInputItem: Codable {
+    enum CodingKeys: String, CodingKey {
+        case type
+    }
+
+    enum Kind: String, Codable {
+        case message
+        case functionCallOutput = "function_call_output"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(Kind.self, forKey: .type) {
+        case .message:
+            self = .message(try OpenAIInputMessage(from: decoder))
+        case .functionCallOutput:
+            self = .functionCallOutput(try OpenAIFunctionCallOutput(from: decoder))
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        switch self {
+        case .message(let message):
+            try message.encode(to: encoder)
+        case .functionCallOutput(let output):
+            try output.encode(to: encoder)
+        }
     }
 }
 
@@ -60,6 +95,25 @@ public struct OpenAIInputMessage: Codable, Equatable, Sendable {
             role: role,
             content: agentMessage.parts.map(OpenAIInputMessageContent.init(messagePart:))
         )
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case role
+        case content
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.role = try container.decode(OpenAIInputMessageRole.self, forKey: .role)
+        self.content = try container.decode([OpenAIInputMessageContent].self, forKey: .content)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(OpenAIResponseInputItem.Kind.message, forKey: .type)
+        try container.encode(role, forKey: .role)
+        try container.encode(content, forKey: .content)
     }
 }
 
@@ -99,6 +153,62 @@ extension OpenAIInputMessageContent: Codable {
         case .inputImage(let url):
             try container.encode(Kind.inputImage, forKey: .type)
             try container.encode(url, forKey: .imageURL)
+        }
+    }
+}
+
+public struct OpenAIFunctionCallOutput: Codable, Equatable, Sendable {
+    public var callID: String
+    public var output: OpenAIFunctionCallOutputValue
+
+    public init(callID: String, output: OpenAIFunctionCallOutputValue) {
+        self.callID = callID
+        self.output = output
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case callID = "call_id"
+        case output
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.callID = try container.decode(String.self, forKey: .callID)
+        self.output = try container.decode(OpenAIFunctionCallOutputValue.self, forKey: .output)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(OpenAIResponseInputItem.Kind.functionCallOutput, forKey: .type)
+        try container.encode(callID, forKey: .callID)
+        try container.encode(output, forKey: .output)
+    }
+}
+
+public enum OpenAIFunctionCallOutputValue: Equatable, Sendable {
+    case text(String)
+    case content([OpenAIInputMessageContent])
+}
+
+extension OpenAIFunctionCallOutputValue: Codable {
+    public init(from decoder: any Decoder) throws {
+        let singleValueContainer = try decoder.singleValueContainer()
+        if let text = try? singleValueContainer.decode(String.self) {
+            self = .text(text)
+            return
+        }
+
+        self = .content(try singleValueContainer.decode([OpenAIInputMessageContent].self))
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var singleValueContainer = encoder.singleValueContainer()
+        switch self {
+        case .text(let text):
+            try singleValueContainer.encode(text)
+        case .content(let content):
+            try singleValueContainer.encode(content)
         }
     }
 }

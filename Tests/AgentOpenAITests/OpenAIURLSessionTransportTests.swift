@@ -11,7 +11,7 @@ struct OpenAIURLSessionTransportTests {
             for: OpenAIResponseRequest(
                 model: "gpt-5.4",
                 input: [
-                    .init(role: .user, content: [.inputText("hello")]),
+                    .message(.init(role: .user, content: [.inputText("hello")])),
                 ]
             )
         )
@@ -29,7 +29,29 @@ struct OpenAIURLSessionTransportTests {
     @Test func transport_decodes_successful_response() async throws {
         let session = StubHTTPSession(
             data: """
-            {"id":"resp_123","status":"completed","output":[]}
+            {
+              "id":"resp_123",
+              "status":"completed",
+              "output":[
+                {
+                  "type":"message",
+                  "id":"msg_123",
+                  "status":"completed",
+                  "role":"assistant",
+                  "content":[
+                    {"type":"output_text","text":"hello from model"}
+                  ]
+                },
+                {
+                  "type":"function_call",
+                  "id":"fc_123",
+                  "call_id":"call_123",
+                  "name":"lookup_weather",
+                  "arguments":"{\\"city\\":\\"Paris\\"}",
+                  "status":"completed"
+                }
+              ]
+            }
             """.data(using: .utf8)!,
             response: HTTPURLResponse(
                 url: URL(string: "https://api.openai.com/v1/responses")!,
@@ -46,12 +68,28 @@ struct OpenAIURLSessionTransportTests {
         let response = try await transport.createResponse(
             OpenAIResponseRequest(
                 model: "gpt-5.4",
-                input: [.init(role: .user, content: [.inputText("hello")])]
+                input: [.message(.init(role: .user, content: [.inputText("hello")]))]
             )
         )
 
         #expect(response.id == "resp_123")
         #expect(response.status == OpenAIResponseStatus.completed)
+        #expect(response.output.count == 2)
+
+        if case .message(let message) = response.output[0] {
+            #expect(message.id == "msg_123")
+            #expect(message.content == [OpenAIResponseMessageContent.outputText("hello from model")])
+        } else {
+            Issue.record("expected first output item to decode as a message")
+        }
+
+        if case .functionCall(let functionCall) = response.output[1] {
+            #expect(functionCall.callID == "call_123")
+            #expect(functionCall.name == "lookup_weather")
+        } else {
+            Issue.record("expected second output item to decode as a function call")
+        }
+
         let lastRequest = try #require(await session.lastRequest)
         #expect(lastRequest.value(forHTTPHeaderField: "Authorization") == "Bearer sk-test")
     }
@@ -75,7 +113,7 @@ struct OpenAIURLSessionTransportTests {
             try await transport.createResponse(
                 OpenAIResponseRequest(
                     model: "gpt-5.4",
-                    input: [.init(role: .user, content: [.inputText("hello")])]
+                    input: [.message(.init(role: .user, content: [.inputText("hello")]))]
                 )
             )
         }
