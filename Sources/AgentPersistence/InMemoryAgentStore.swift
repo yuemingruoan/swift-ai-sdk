@@ -13,11 +13,12 @@ public actor InMemoryAgentStore: AgentSessionStore, AgentTurnStore {
         sessionsByID[session.id] = session
     }
 
-    public func session(id: String) async -> AgentSession? {
+    public func session(id: String) async throws -> AgentSession? {
         sessionsByID[id]
     }
 
-    public func listSessions() async -> [AgentSession] {
+    /// Returns a stable, deterministic order for the in-memory implementation.
+    public func listSessions() async throws -> [AgentSession] {
         sessionsByID.values.sorted { $0.id < $1.id }
     }
 
@@ -27,14 +28,11 @@ public actor InMemoryAgentStore: AgentSessionStore, AgentTurnStore {
     }
 
     public func appendTurn(_ turn: AgentTurn) async throws {
-        guard sessionsByID[turn.sessionID] != nil else {
-            throw AgentPersistenceError.missingSession(id: turn.sessionID)
-        }
-
         turnsBySessionID[turn.sessionID, default: []].append(turn)
     }
 
-    public func turns(forSessionID sessionID: String) async -> [AgentTurn] {
+    /// Preserves append order for the in-memory implementation.
+    public func turns(forSessionID sessionID: String) async throws -> [AgentTurn] {
         turnsBySessionID[sessionID] ?? []
     }
 

@@ -9,7 +9,7 @@ struct InMemoryAgentStoreTests {
 
         try await store.saveSession(session)
 
-        #expect(await store.session(id: session.id) == session)
+        #expect(try await store.session(id: session.id) == session)
     }
 
     @Test func listsSessionsDeterministicallyByIdentifier() async throws {
@@ -19,7 +19,7 @@ struct InMemoryAgentStoreTests {
         try await store.saveSession(.init(id: "session-a"))
         try await store.saveSession(.init(id: "session-b"))
 
-        let sessions = await store.listSessions()
+        let sessions = try await store.listSessions()
         #expect(sessions.map(\.id) == ["session-a", "session-b", "session-c"])
     }
 
@@ -41,7 +41,7 @@ struct InMemoryAgentStoreTests {
         try await store.appendTurn(firstTurn)
         try await store.appendTurn(secondTurn)
 
-        let turns = await store.turns(forSessionID: "session-1")
+        let turns = try await store.turns(forSessionID: "session-1")
         #expect(turns == [firstTurn, secondTurn])
     }
 
@@ -59,11 +59,11 @@ struct InMemoryAgentStoreTests {
 
         try await store.deleteSession(id: session.id)
 
-        #expect(await store.session(id: session.id) == nil)
-        #expect(await store.turns(forSessionID: session.id).isEmpty)
+        #expect(try await store.session(id: session.id) == nil)
+        #expect(try await store.turns(forSessionID: session.id).isEmpty)
     }
 
-    @Test func appendingTurnForMissingSessionThrowsMissingSessionError() async {
+    @Test func appendingTurnDoesNotRequireExistingSession() async throws {
         let store = InMemoryAgentStore()
         let turn = AgentTurn(
             sessionID: "missing-session",
@@ -71,9 +71,9 @@ struct InMemoryAgentStoreTests {
             output: [assistantMessage("pong")]
         )
 
-        await #expect(throws: AgentPersistenceError.missingSession(id: "missing-session")) {
-            try await store.appendTurn(turn)
-        }
+        try await store.appendTurn(turn)
+
+        #expect(try await store.turns(forSessionID: "missing-session") == [turn])
     }
 }
 
