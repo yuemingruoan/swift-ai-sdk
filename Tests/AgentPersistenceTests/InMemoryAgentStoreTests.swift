@@ -95,6 +95,42 @@ struct InMemoryAgentStoreTests {
             ),
         ])
     }
+
+    @Test func duplicateExplicitSequenceNumbersAreNormalizedToUniqueStoredOrder() async throws {
+        let store = InMemoryAgentStore()
+
+        try await store.appendTurn(
+            AgentTurn(
+                sessionID: "session-1",
+                input: [.userText("first")],
+                output: [assistantMessage("one")],
+                sequenceNumber: 0
+            )
+        )
+        try await store.appendTurn(
+            AgentTurn(
+                sessionID: "session-1",
+                input: [.userText("second")],
+                output: [assistantMessage("two")],
+                sequenceNumber: 0
+            )
+        )
+
+        #expect(try await store.turns(forSessionID: "session-1") == [
+            AgentTurn(
+                sessionID: "session-1",
+                input: [.userText("first")],
+                output: [assistantMessage("one")],
+                sequenceNumber: 0
+            ),
+            AgentTurn(
+                sessionID: "session-1",
+                input: [.userText("second")],
+                output: [assistantMessage("two")],
+                sequenceNumber: 1
+            ),
+        ])
+    }
 }
 
 private func assistantMessage(_ text: String) -> AgentMessage {

@@ -29,7 +29,7 @@ public actor InMemoryAgentStore: AgentSessionStore, AgentTurnStore {
 
     public func appendTurn(_ turn: AgentTurn) async throws {
         let storedTurn = turn.withSequenceNumber(
-            turn.sequenceNumber ?? nextSequenceNumber(forSessionID: turn.sessionID)
+            normalizedSequenceNumber(for: turn)
         )
         turnsBySessionID[turn.sessionID, default: []].append(storedTurn)
     }
@@ -45,6 +45,15 @@ public actor InMemoryAgentStore: AgentSessionStore, AgentTurnStore {
 
     private func nextSequenceNumber(forSessionID sessionID: String) -> Int {
         turnsBySessionID[sessionID]?.compactMap(\.sequenceNumber).max().map { $0 + 1 } ?? 0
+    }
+
+    private func normalizedSequenceNumber(for turn: AgentTurn) -> Int {
+        let next = nextSequenceNumber(forSessionID: turn.sessionID)
+        guard let requested = turn.sequenceNumber else {
+            return next
+        }
+
+        return max(requested, next)
     }
 
     private func compareTurns(_ lhs: AgentTurn, _ rhs: AgentTurn) -> Bool {
