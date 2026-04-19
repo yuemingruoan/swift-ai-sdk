@@ -234,6 +234,43 @@ public actor OpenAIRealtimeWebSocketClient {
         try await receive().projectedAgentStreamEvents()
     }
 
+    public func updateSession(instructions: String) async throws {
+        try await send(
+            OpenAIRealtimeEvent(
+                type: "session.update",
+                payload: [
+                    "session": .object([
+                        "instructions": .string(instructions),
+                    ]),
+                ]
+            )
+        )
+    }
+
+    public func sendUserText(_ text: String) async throws {
+        try await send(
+            OpenAIRealtimeEvent(
+                type: "conversation.item.create",
+                payload: [
+                    "item": .object([
+                        "type": .string("message"),
+                        "role": .string("user"),
+                        "content": .array([
+                            .object([
+                                "type": .string("input_text"),
+                                "text": .string(text),
+                            ]),
+                        ]),
+                    ]),
+                ]
+            )
+        )
+    }
+
+    public func createResponse() async throws {
+        try await send(OpenAIRealtimeEvent(type: "response.create"))
+    }
+
     public func disconnect() async {
         await connection?.cancel()
         connection = nil

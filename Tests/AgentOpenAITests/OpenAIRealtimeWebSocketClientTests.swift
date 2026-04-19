@@ -43,6 +43,29 @@ struct OpenAIRealtimeWebSocketClientTests {
         let lastSentText = try #require(await session.connection.lastSentText)
         #expect(lastSentText.contains("\"type\":\"session.update\""))
     }
+
+    @Test func websocket_client_can_send_typed_session_update_user_text_and_response_create_events() async throws {
+        let session = StubWebSocketSession(incomingMessages: [])
+        let client = OpenAIRealtimeWebSocketClient(
+            configuration: .init(apiKey: "sk-test", model: "gpt-realtime"),
+            session: session
+        )
+
+        try await client.connect()
+        try await client.updateSession(instructions: "Be concise")
+        let sessionUpdateJSON = try #require(await session.connection.lastSentText)
+        #expect(sessionUpdateJSON.contains("\"type\":\"session.update\""))
+        #expect(sessionUpdateJSON.contains("\"instructions\":\"Be concise\""))
+
+        try await client.sendUserText("hello there")
+        let userMessageJSON = try #require(await session.connection.lastSentText)
+        #expect(userMessageJSON.contains("\"type\":\"conversation.item.create\""))
+        #expect(userMessageJSON.contains("\"text\":\"hello there\""))
+
+        try await client.createResponse()
+        let responseCreateJSON = try #require(await session.connection.lastSentText)
+        #expect(responseCreateJSON.contains("\"type\":\"response.create\""))
+    }
 }
 
 private final class StubWebSocketSession: @unchecked Sendable, OpenAIWebSocketSession {
