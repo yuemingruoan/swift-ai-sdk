@@ -102,6 +102,73 @@ public struct OpenAIRealtimeEvent: Codable, Equatable, Sendable {
     }
 }
 
+public struct OpenAIRealtimeSession: Codable, Equatable, Sendable {
+    public var instructions: String?
+
+    public init(instructions: String? = nil) {
+        self.instructions = instructions
+    }
+}
+
+public struct OpenAIRealtimeSessionUpdateEvent: Codable, Equatable, Sendable {
+    public var type: String
+    public var session: OpenAIRealtimeSession
+
+    public init(session: OpenAIRealtimeSession) {
+        self.type = "session.update"
+        self.session = session
+    }
+}
+
+public struct OpenAIRealtimeInputTextContent: Codable, Equatable, Sendable {
+    public var type: String
+    public var text: String
+
+    public init(text: String) {
+        self.type = "input_text"
+        self.text = text
+    }
+}
+
+public struct OpenAIRealtimeConversationItem: Codable, Equatable, Sendable {
+    public var type: String
+    public var role: String
+    public var content: [OpenAIRealtimeInputTextContent]
+
+    public init(role: String, content: [OpenAIRealtimeInputTextContent]) {
+        self.type = "message"
+        self.role = role
+        self.content = content
+    }
+}
+
+public struct OpenAIRealtimeConversationItemCreateEvent: Codable, Equatable, Sendable {
+    public var type: String
+    public var item: OpenAIRealtimeConversationItem
+
+    public init(item: OpenAIRealtimeConversationItem) {
+        self.type = "conversation.item.create"
+        self.item = item
+    }
+
+    public static func userText(_ text: String) -> Self {
+        Self(
+            item: OpenAIRealtimeConversationItem(
+                role: "user",
+                content: [.init(text: text)]
+            )
+        )
+    }
+}
+
+public struct OpenAIRealtimeResponseCreateEvent: Codable, Equatable, Sendable {
+    public var type: String
+
+    public init() {
+        self.type = "response.create"
+    }
+}
+
 public struct OpenAIRealtimeConfiguration: Equatable, Sendable {
     public var apiKey: String
     public var model: String
@@ -235,40 +302,22 @@ public actor OpenAIRealtimeWebSocketClient {
     }
 
     public func updateSession(instructions: String) async throws {
-        try await send(
-            OpenAIRealtimeEvent(
-                type: "session.update",
-                payload: [
-                    "session": .object([
-                        "instructions": .string(instructions),
-                    ]),
-                ]
+        let data = try JSONEncoder().encode(
+            OpenAIRealtimeSessionUpdateEvent(
+                session: .init(instructions: instructions)
             )
         )
+        try await send(try JSONDecoder().decode(OpenAIRealtimeEvent.self, from: data))
     }
 
     public func sendUserText(_ text: String) async throws {
-        try await send(
-            OpenAIRealtimeEvent(
-                type: "conversation.item.create",
-                payload: [
-                    "item": .object([
-                        "type": .string("message"),
-                        "role": .string("user"),
-                        "content": .array([
-                            .object([
-                                "type": .string("input_text"),
-                                "text": .string(text),
-                            ]),
-                        ]),
-                    ]),
-                ]
-            )
-        )
+        let data = try JSONEncoder().encode(OpenAIRealtimeConversationItemCreateEvent.userText(text))
+        try await send(try JSONDecoder().decode(OpenAIRealtimeEvent.self, from: data))
     }
 
     public func createResponse() async throws {
-        try await send(OpenAIRealtimeEvent(type: "response.create"))
+        let data = try JSONEncoder().encode(OpenAIRealtimeResponseCreateEvent())
+        try await send(try JSONDecoder().decode(OpenAIRealtimeEvent.self, from: data))
     }
 
     public func disconnect() async {

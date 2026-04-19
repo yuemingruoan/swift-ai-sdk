@@ -66,6 +66,28 @@ struct OpenAIRealtimeWebSocketClientTests {
         let responseCreateJSON = try #require(await session.connection.lastSentText)
         #expect(responseCreateJSON.contains("\"type\":\"response.create\""))
     }
+
+    @Test func structured_realtime_events_encode_expected_payloads() throws {
+        let sessionUpdate = try encode(
+            OpenAIRealtimeSessionUpdateEvent(
+                session: .init(instructions: "Be concise")
+            )
+        )
+        #expect(sessionUpdate["type"] as? String == "session.update")
+        let sessionObject = try #require(sessionUpdate["session"] as? [String: Any])
+        #expect(sessionObject["instructions"] as? String == "Be concise")
+
+        let userMessage = try encode(
+            OpenAIRealtimeConversationItemCreateEvent.userText("hello there")
+        )
+        #expect(userMessage["type"] as? String == "conversation.item.create")
+        let item = try #require(userMessage["item"] as? [String: Any])
+        #expect(item["type"] as? String == "message")
+        #expect(item["role"] as? String == "user")
+
+        let responseCreate = try encode(OpenAIRealtimeResponseCreateEvent())
+        #expect(responseCreate["type"] as? String == "response.create")
+    }
 }
 
 private final class StubWebSocketSession: @unchecked Sendable, OpenAIWebSocketSession {
@@ -99,4 +121,9 @@ private actor StubWebSocketConnection: OpenAIWebSocketConnection {
     }
 
     func cancel() async {}
+}
+
+private func encode<T: Encodable>(_ value: T) throws -> [String: Any] {
+    let data = try JSONEncoder().encode(value)
+    return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
 }
