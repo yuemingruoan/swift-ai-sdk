@@ -4,6 +4,80 @@ import Foundation
 import Testing
 
 struct OpenAIResponsesClientTests {
+    @Test func response_projection_maps_message_and_function_call_into_agentcore_shapes() throws {
+        let response = OpenAIResponse(
+            id: "resp_123",
+            status: .completed,
+            output: [
+                .message(
+                    .init(
+                        id: "msg_123",
+                        status: .completed,
+                        role: .assistant,
+                        content: [
+                            .outputText("hello"),
+                            .refusal("cannot do that"),
+                        ]
+                    )
+                ),
+                .functionCall(
+                    .init(
+                        id: "fc_123",
+                        callID: "call_123",
+                        name: "lookup_weather",
+                        arguments: "{\"city\":\"Paris\",\"days\":3}",
+                        status: .completed
+                    )
+                ),
+            ]
+        )
+
+        let projection = try response.projectedOutput()
+
+        #expect(projection.messages == [
+            AgentMessage(
+                role: .assistant,
+                parts: [
+                    .text("hello"),
+                    .text("cannot do that"),
+                ]
+            ),
+        ])
+        #expect(projection.toolCalls == [
+            OpenAIResponseToolCall(
+                callID: "call_123",
+                invocation: ToolInvocation(
+                    toolName: "lookup_weather",
+                    arguments: [
+                        "city": .string("Paris"),
+                        "days": .integer(3),
+                    ]
+                )
+            ),
+        ])
+    }
+
+    @Test func response_projection_rejects_invalid_function_call_arguments() {
+        let response = OpenAIResponse(
+            id: "resp_123",
+            status: .completed,
+            output: [
+                .functionCall(
+                    .init(
+                        callID: "call_123",
+                        name: "lookup_weather",
+                        arguments: "{invalid json}",
+                        status: .completed
+                    )
+                ),
+            ]
+        )
+
+        #expect(throws: OpenAIConversionError.invalidFunctionCallArguments("call_123")) {
+            _ = try response.projectedOutput()
+        }
+    }
+
     @Test func request_builder_encodes_agent_messages_as_openai_input_messages() throws {
         let request = try OpenAIResponseRequest(
             model: "gpt-5.4",
