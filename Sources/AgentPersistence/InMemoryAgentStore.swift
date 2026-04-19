@@ -28,15 +28,46 @@ public actor InMemoryAgentStore: AgentSessionStore, AgentTurnStore {
     }
 
     public func appendTurn(_ turn: AgentTurn) async throws {
-        turnsBySessionID[turn.sessionID, default: []].append(turn)
+        let storedTurn = turn.withSequenceNumber(
+            turn.sequenceNumber ?? nextSequenceNumber(forSessionID: turn.sessionID)
+        )
+        turnsBySessionID[turn.sessionID, default: []].append(storedTurn)
     }
 
-    /// Preserves append order for the in-memory implementation.
+    /// Preserves append order by returning turns sorted by `sequenceNumber`.
     public func turns(forSessionID sessionID: String) async throws -> [AgentTurn] {
-        turnsBySessionID[sessionID] ?? []
+        turnsBySessionID[sessionID]?.sorted(by: compareTurns) ?? []
     }
 
     public func deleteTurns(forSessionID sessionID: String) async throws {
         turnsBySessionID.removeValue(forKey: sessionID)
+    }
+
+    private func nextSequenceNumber(forSessionID sessionID: String) -> Int {
+        turnsBySessionID[sessionID]?.compactMap(\.sequenceNumber).max().map { $0 + 1 } ?? 0
+    }
+
+    private func compareTurns(_ lhs: AgentTurn, _ rhs: AgentTurn) -> Bool {
+        switch (lhs.sequenceNumber, rhs.sequenceNumber) {
+        case let (lhs?, rhs?):
+            return lhs < rhs
+        case (.some, nil):
+            return true
+        case (nil, .some):
+            return false
+        case (nil, nil):
+            return false
+        }
+    }
+}
+
+private extension AgentTurn {
+    func withSequenceNumber(_ sequenceNumber: Int) -> AgentTurn {
+        AgentTurn(
+            sessionID: sessionID,
+            input: input,
+            output: output,
+            sequenceNumber: sequenceNumber
+        )
     }
 }

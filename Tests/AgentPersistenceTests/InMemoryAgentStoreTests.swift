@@ -42,7 +42,20 @@ struct InMemoryAgentStoreTests {
         try await store.appendTurn(secondTurn)
 
         let turns = try await store.turns(forSessionID: "session-1")
-        #expect(turns == [firstTurn, secondTurn])
+        #expect(turns == [
+            AgentTurn(
+                sessionID: "session-1",
+                input: [.userText("first")],
+                output: [assistantMessage("one")],
+                sequenceNumber: 0
+            ),
+            AgentTurn(
+                sessionID: "session-1",
+                input: [.userText("second")],
+                output: [assistantMessage("two")],
+                sequenceNumber: 1
+            ),
+        ])
     }
 
     @Test func deletingSessionAlsoClearsTurns() async throws {
@@ -73,7 +86,14 @@ struct InMemoryAgentStoreTests {
 
         try await store.appendTurn(turn)
 
-        #expect(try await store.turns(forSessionID: "missing-session") == [turn])
+        #expect(try await store.turns(forSessionID: "missing-session") == [
+            AgentTurn(
+                sessionID: "missing-session",
+                input: [.userText("ping")],
+                output: [assistantMessage("pong")],
+                sequenceNumber: 0
+            ),
+        ])
     }
 }
 

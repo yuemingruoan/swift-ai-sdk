@@ -19,6 +19,21 @@ struct MessageModelTests {
         let turn = AgentTurn(sessionID: "s1", input: [.userText("ping")], output: [])
         #expect(turn.sessionID == "s1")
         #expect(turn.input.count == 1)
+        #expect(turn.sequenceNumber == nil)
+    }
+
+    @Test func turn_round_trips_sequence_number_through_codable() throws {
+        let turn = AgentTurn(
+            sessionID: "session-123",
+            input: [.userText("ping")],
+            output: [.init(role: .assistant, parts: [.text("pong")])],
+            sequenceNumber: 7
+        )
+
+        let data = try JSONEncoder().encode(turn)
+        let decoded = try JSONDecoder().decode(AgentTurn.self, from: data)
+
+        #expect(decoded == turn)
     }
 
     @Test func session_round_trips_identifier_through_codable() throws {
