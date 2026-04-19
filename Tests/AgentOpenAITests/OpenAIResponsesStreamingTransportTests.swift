@@ -63,10 +63,68 @@ struct OpenAIResponsesStreamingTransportTests {
             ),
         ])
     }
+
+    @Test func streaming_transport_surfaces_failed_events() async throws {
+        let session = StubLineStreamingSession(
+            lines: [
+                "data: {\"type\":\"response.failed\",\"response\":{\"id\":\"resp_123\",\"status\":\"failed\",\"output\":[]}}",
+                "",
+            ]
+        )
+        let transport = URLSessionOpenAIResponsesStreamingTransport(
+            configuration: .init(apiKey: "sk-test"),
+            session: session
+        )
+
+        var events: [OpenAIResponseStreamEvent] = []
+        for try await event in transport.streamResponse(
+            OpenAIResponseRequest(
+                model: "gpt-5.4",
+                input: [.message(.init(role: .user, content: [.inputText("hello")]))]
+            )
+        ) {
+            events.append(event)
+        }
+
+        #expect(events == [
+            OpenAIResponseStreamEvent.responseFailed(
+                OpenAIResponse(id: "resp_123", status: .failed, output: [])
+            ),
+        ])
+    }
+
+    @Test func streaming_transport_cancels_background_task_when_consumer_stops_early() async throws {
+        let session = StubLineStreamingSession(
+            lines: [
+                "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_123\",\"status\":\"in_progress\",\"output\":[]}}",
+                "",
+                "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg_123\",\"output_index\":0,\"content_index\":0,\"delta\":\"Hel\",\"sequence_number\":1}",
+                "",
+            ]
+        )
+        let transport = URLSessionOpenAIResponsesStreamingTransport(
+            configuration: .init(apiKey: "sk-test"),
+            session: session
+        )
+
+        var iterator: AsyncThrowingStream<OpenAIResponseStreamEvent, Error>.Iterator? = transport.streamResponse(
+            OpenAIResponseRequest(
+                model: "gpt-5.4",
+                input: [.message(.init(role: .user, content: [.inputText("hello")]))]
+            )
+        ).makeAsyncIterator()
+
+        _ = try await iterator?.next()
+        iterator = nil
+
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(await session.wasCancelled)
+    }
 }
 
 private actor StubLineStreamingSession: OpenAIHTTPLineStreamingSession {
     let lines: [String]
+    private(set) var wasCancelled = false
 
     init(lines: [String]) {
         self.lines = lines
@@ -82,12 +140,25 @@ private actor StubLineStreamingSession: OpenAIHTTPLineStreamingSession {
 
         return (
             AsyncThrowingStream { continuation in
-                for line in lines {
-                    continuation.yield(line)
+                let task = Task {
+                    for line in lines {
+                        if Task.isCancelled { break }
+                        continuation.yield(line)
+                        try? await Task.sleep(for: .milliseconds(10))
+                    }
+                    continuation.finish()
                 }
-                continuation.finish()
+
+                continuation.onTermination = { _ in
+                    task.cancel()
+                    Task { await self.markCancelled() }
+                }
             },
             response
         )
+    }
+
+    private func markCancelled() {
+        wasCancelled = true
     }
 }

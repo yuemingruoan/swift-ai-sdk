@@ -145,7 +145,22 @@ public struct OpenAIResponseTextDeltaEvent: Codable, Equatable, Sendable {
 public enum OpenAIResponseStreamEvent: Equatable, Sendable {
     case responseCreated(OpenAIResponse)
     case outputTextDelta(OpenAIResponseTextDeltaEvent)
+    case responseFailed(OpenAIResponse)
+    case responseIncomplete(OpenAIResponse)
+    case error(OpenAIResponseStreamErrorEvent)
     case responseCompleted(OpenAIResponse)
+}
+
+public struct OpenAIResponseStreamErrorEvent: Codable, Equatable, Sendable {
+    public var type: String
+    public var code: String?
+    public var message: String?
+
+    public init(type: String, code: String? = nil, message: String? = nil) {
+        self.type = type
+        self.code = code
+        self.message = message
+    }
 }
 
 public struct URLSessionOpenAIResponsesStreamingTransport: OpenAIResponsesStreamingTransport, Sendable {
@@ -162,7 +177,7 @@ public struct URLSessionOpenAIResponsesStreamingTransport: OpenAIResponsesStream
 
     public func streamResponse(_ request: OpenAIResponseRequest) -> AsyncThrowingStream<OpenAIResponseStreamEvent, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     let urlRequest = try builder.makeStreamingURLRequest(for: request)
                     let (lines, response) = try await session.streamLines(for: urlRequest)
@@ -196,6 +211,10 @@ public struct URLSessionOpenAIResponsesStreamingTransport: OpenAIResponsesStream
                     continuation.finish(throwing: error)
                 }
             }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
         }
     }
 }
@@ -226,6 +245,18 @@ private func decodeSSEEvent(from dataLines: [String]) throws -> OpenAIResponseSt
         return .responseCreated(response)
     case "response.output_text.delta":
         return .outputTextDelta(try JSONDecoder().decode(OpenAIResponseTextDeltaEvent.self, from: jsonData))
+    case "response.failed":
+        guard let response = envelope.response else {
+            throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "missing response payload"))
+        }
+        return .responseFailed(response)
+    case "response.incomplete":
+        guard let response = envelope.response else {
+            throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "missing response payload"))
+        }
+        return .responseIncomplete(response)
+    case "error":
+        return .error(try JSONDecoder().decode(OpenAIResponseStreamErrorEvent.self, from: jsonData))
     case "response.completed":
         guard let response = envelope.response else {
             throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "missing response payload"))
