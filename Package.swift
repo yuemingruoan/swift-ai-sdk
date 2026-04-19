@@ -15,6 +15,7 @@ let package = Package(
     ],
     products: [
         .library(name: "AgentCore", targets: ["AgentCore"]),
+        .library(name: "AgentOpenAI", targets: ["AgentOpenAI"]),
         .library(name: "AgentPersistence", targets: ["AgentPersistence"]),
         .library(name: "AgentMacros", targets: ["AgentMacros"]),
     ],
@@ -32,6 +33,13 @@ let package = Package(
                 "AgentCore",
             ],
             path: "Sources/AgentPersistence"
+        ),
+        .target(
+            name: "AgentOpenAI",
+            dependencies: [
+                "AgentCore",
+            ],
+            path: "Sources/AgentOpenAI"
         ),
         .macro(
             name: "AgentMacrosPlugin",
@@ -66,6 +74,14 @@ let package = Package(
                 "AgentCore",
             ],
             path: "Tests/AgentPersistenceTests"
+        ),
+        .testTarget(
+            name: "AgentOpenAITests",
+            dependencies: [
+                "AgentOpenAI",
+                "AgentCore",
+            ],
+            path: "Tests/AgentOpenAITests"
         ),
         .testTarget(
             name: "AgentMacrosTests",
