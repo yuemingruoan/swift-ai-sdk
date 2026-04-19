@@ -1,3 +1,4 @@
+import AgentCore
 import Foundation
 
 public indirect enum OpenAIRealtimeValue: Equatable, Sendable {
@@ -229,8 +230,35 @@ public actor OpenAIRealtimeWebSocketClient {
         return try JSONDecoder().decode(OpenAIRealtimeEvent.self, from: Data(text.utf8))
     }
 
+    public func receiveProjectedEvents() async throws -> [AgentStreamEvent] {
+        try await receive().projectedAgentStreamEvents()
+    }
+
     public func disconnect() async {
         await connection?.cancel()
         connection = nil
+    }
+}
+
+public extension OpenAIRealtimeEvent {
+    func projectedAgentStreamEvents() throws -> [AgentStreamEvent] {
+        switch type {
+        case "response.output_text.delta":
+            guard case let .string(delta)? = payload["delta"] else {
+                return []
+            }
+            return [.textDelta(delta)]
+
+        case "response.completed":
+            guard let responseValue = payload["response"] else {
+                return []
+            }
+            let data = try JSONEncoder().encode(responseValue)
+            let response = try JSONDecoder().decode(OpenAIResponse.self, from: data)
+            return try response.projectedOutput().agentStreamEvents()
+
+        default:
+            return []
+        }
     }
 }

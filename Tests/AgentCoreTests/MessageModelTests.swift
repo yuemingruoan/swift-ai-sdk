@@ -67,4 +67,32 @@ struct MessageModelTests {
 
         #expect(decoded == event)
     }
+
+    @Test func stream_event_round_trips_tool_call_through_codable() throws {
+        let event = AgentStreamEvent.toolCall(
+            .init(
+                callID: "call_123",
+                invocation: ToolInvocation(
+                    toolName: "lookup_weather",
+                    arguments: ["city": .string("Paris")]
+                )
+            )
+        )
+
+        let data = try JSONEncoder().encode(event)
+        let decoded = try JSONDecoder().decode(AgentStreamEvent.self, from: data)
+
+        #expect(decoded == event)
+    }
+
+    @Test func stream_event_round_trips_completed_messages_through_codable() throws {
+        let event = AgentStreamEvent.messagesCompleted([
+            AgentMessage(role: .assistant, parts: [.text("done")]),
+        ])
+
+        let data = try JSONEncoder().encode(event)
+        let decoded = try JSONDecoder().decode(AgentStreamEvent.self, from: data)
+
+        #expect(decoded == event)
+    }
 }

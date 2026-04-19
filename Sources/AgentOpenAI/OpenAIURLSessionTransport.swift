@@ -1,3 +1,4 @@
+import AgentCore
 import Foundation
 
 public struct OpenAIAPIConfiguration: Equatable, Sendable {
@@ -16,6 +17,8 @@ public struct OpenAIAPIConfiguration: Equatable, Sendable {
 public enum OpenAITransportError: Error, Equatable, Sendable {
     case invalidResponse
     case unsuccessfulStatusCode(Int)
+    case streamingResponseFailed(OpenAIResponseStatus)
+    case streamingServerError(type: String, code: String?, message: String?)
 }
 
 public protocol OpenAIHTTPSession: Sendable {
@@ -149,6 +152,29 @@ public enum OpenAIResponseStreamEvent: Equatable, Sendable {
     case responseIncomplete(OpenAIResponse)
     case error(OpenAIResponseStreamErrorEvent)
     case responseCompleted(OpenAIResponse)
+}
+
+public extension OpenAIResponseStreamEvent {
+    func projectedAgentStreamEvents() throws -> [AgentStreamEvent] {
+        switch self {
+        case .responseCreated:
+            return []
+        case .outputTextDelta(let delta):
+            return [.textDelta(delta.delta)]
+        case .responseFailed(let response):
+            throw OpenAITransportError.streamingResponseFailed(response.status)
+        case .responseIncomplete(let response):
+            throw OpenAITransportError.streamingResponseFailed(response.status)
+        case .error(let error):
+            throw OpenAITransportError.streamingServerError(
+                type: error.type,
+                code: error.code,
+                message: error.message
+            )
+        case .responseCompleted(let response):
+            return try response.projectedOutput().agentStreamEvents()
+        }
+    }
 }
 
 public struct OpenAIResponseStreamErrorEvent: Codable, Equatable, Sendable {

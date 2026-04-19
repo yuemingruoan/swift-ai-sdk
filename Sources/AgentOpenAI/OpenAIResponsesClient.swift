@@ -50,3 +50,48 @@ public struct OpenAIResponsesClient: Sendable {
         return try response.projectedOutput()
     }
 }
+
+public struct OpenAIResponsesStreamingClient: Sendable {
+    private let transport: any OpenAIResponsesStreamingTransport
+
+    public init(transport: any OpenAIResponsesStreamingTransport) {
+        self.transport = transport
+    }
+
+    public func streamProjectedResponse(
+        _ request: OpenAIResponseRequest
+    ) -> AsyncThrowingStream<AgentStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    for try await event in transport.streamResponse(request) {
+                        for projectedEvent in try event.projectedAgentStreamEvents() {
+                            continuation.yield(projectedEvent)
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
+
+    public func streamProjectedResponse(
+        model: String,
+        messages: [AgentMessage],
+        previousResponseID: String? = nil
+    ) throws -> AsyncThrowingStream<AgentStreamEvent, Error> {
+        streamProjectedResponse(
+            try OpenAIResponseRequest(
+                model: model,
+                messages: messages,
+                previousResponseID: previousResponseID
+            )
+        )
+    }
+}

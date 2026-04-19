@@ -21,6 +21,22 @@ public struct OpenAIResponseProjection: Equatable, Sendable {
     }
 }
 
+public extension OpenAIResponseProjection {
+    func agentStreamEvents() -> [AgentStreamEvent] {
+        var events = toolCalls.map { toolCall in
+            AgentStreamEvent.toolCall(
+                AgentToolCall(callID: toolCall.callID, invocation: toolCall.invocation)
+            )
+        }
+
+        if !messages.isEmpty {
+            events.append(.messagesCompleted(messages))
+        }
+
+        return events
+    }
+}
+
 public extension OpenAIResponse {
     func projectedOutput() throws -> OpenAIResponseProjection {
         var messages: [AgentMessage] = []
