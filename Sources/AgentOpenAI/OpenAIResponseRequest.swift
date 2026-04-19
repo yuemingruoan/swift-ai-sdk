@@ -32,11 +32,74 @@ public struct OpenAIResponseRequest: Codable, Equatable, Sendable {
         )
     }
 
+    public init(
+        model: String,
+        previousResponseID: String? = nil,
+        stream: Bool? = nil,
+        configureInput: (inout OpenAIResponseInputBuilder) -> Void
+    ) {
+        var builder = OpenAIResponseInputBuilder()
+        configureInput(&builder)
+        self.init(
+            model: model,
+            input: builder.build(),
+            previousResponseID: previousResponseID,
+            stream: stream
+        )
+    }
+
     enum CodingKeys: String, CodingKey {
         case model
         case input
         case previousResponseID = "previous_response_id"
         case stream
+    }
+}
+
+public struct OpenAIResponseInputBuilder: Equatable, Sendable {
+    private var items: [OpenAIResponseInputItem] = []
+
+    public init() {}
+
+    public mutating func append(_ item: OpenAIResponseInputItem) {
+        items.append(item)
+    }
+
+    public mutating func appendSystemText(_ text: String) {
+        append(.message(.systemText(text)))
+    }
+
+    public mutating func appendDeveloperText(_ text: String) {
+        append(.message(.developerText(text)))
+    }
+
+    public mutating func appendUserText(_ text: String) {
+        append(.message(.userText(text)))
+    }
+
+    public mutating func appendAssistantText(_ text: String) {
+        append(.message(.assistantText(text)))
+    }
+
+    public mutating func appendUserImage(_ url: URL) {
+        guard case .message(let message)? = items.last, message.role == .user else {
+            append(.message(.init(role: .user, content: [.inputImage(url)])))
+            return
+        }
+
+        items.removeLast()
+        items.append(.message(.init(role: .user, content: message.content + [.inputImage(url)])))
+    }
+
+    public mutating func appendFunctionCallOutput(
+        callID: String,
+        output: OpenAIFunctionCallOutputValue
+    ) {
+        append(.functionCallOutput(.init(callID: callID, output: output)))
+    }
+
+    public func build() -> [OpenAIResponseInputItem] {
+        items
     }
 }
 
@@ -89,6 +152,22 @@ public struct OpenAIInputMessage: Codable, Equatable, Sendable {
     public init(role: OpenAIInputMessageRole, content: [OpenAIInputMessageContent]) {
         self.role = role
         self.content = content
+    }
+
+    public static func systemText(_ text: String) -> Self {
+        .init(role: .system, content: [.inputText(text)])
+    }
+
+    public static func developerText(_ text: String) -> Self {
+        .init(role: .developer, content: [.inputText(text)])
+    }
+
+    public static func userText(_ text: String) -> Self {
+        .init(role: .user, content: [.inputText(text)])
+    }
+
+    public static func assistantText(_ text: String) -> Self {
+        .init(role: .assistant, content: [.inputText(text)])
     }
 
     init(agentMessage: AgentMessage) throws {

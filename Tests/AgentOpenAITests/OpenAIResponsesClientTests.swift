@@ -182,6 +182,36 @@ struct OpenAIResponsesClientTests {
         #expect(input[0]["output"] as? String == "{\"ok\":true}")
     }
 
+    @Test func structured_request_builder_encodes_mixed_input_items() throws {
+        let request = OpenAIResponseRequest(
+            model: "gpt-5.4",
+            previousResponseID: "resp_prev"
+        ) { input in
+            input.appendSystemText("follow instructions")
+            input.appendUserText("describe this image")
+            input.appendUserImage(URL(string: "https://example.com/cat.png")!)
+            input.appendFunctionCallOutput(
+                callID: "call_123",
+                output: .text("{\"ok\":true}")
+            )
+        }
+
+        let payload = try jsonObject(for: request)
+        let input = try #require(payload["input"] as? [[String: Any]])
+
+        #expect(payload["previous_response_id"] as? String == "resp_prev")
+        #expect(input.count == 3)
+        #expect(input[0]["role"] as? String == "system")
+
+        let userContent = try #require(input[1]["content"] as? [[String: Any]])
+        #expect(userContent.count == 2)
+        #expect(userContent[0]["text"] as? String == "describe this image")
+        #expect(userContent[1]["image_url"] as? String == "https://example.com/cat.png")
+
+        #expect(input[2]["type"] as? String == "function_call_output")
+        #expect(input[2]["call_id"] as? String == "call_123")
+    }
+
     @Test func client_builds_request_and_delegates_to_transport() async throws {
         let transport = StubResponsesTransport()
         let client = OpenAIResponsesClient(transport: transport)
