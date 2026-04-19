@@ -5,15 +5,18 @@ public struct OpenAIResponseRequest: Codable, Equatable, Sendable {
     public var model: String
     public var input: [OpenAIResponseInputItem]
     public var previousResponseID: String?
+    public var stream: Bool?
 
     public init(
         model: String,
         input: [OpenAIResponseInputItem],
-        previousResponseID: String? = nil
+        previousResponseID: String? = nil,
+        stream: Bool? = nil
     ) {
         self.model = model
         self.input = input
         self.previousResponseID = previousResponseID
+        self.stream = stream
     }
 
     public init(
@@ -24,7 +27,8 @@ public struct OpenAIResponseRequest: Codable, Equatable, Sendable {
         self.init(
             model: model,
             input: try messages.map { .message(try .init(agentMessage: $0)) },
-            previousResponseID: previousResponseID
+            previousResponseID: previousResponseID,
+            stream: nil
         )
     }
 
@@ -32,6 +36,7 @@ public struct OpenAIResponseRequest: Codable, Equatable, Sendable {
         case model
         case input
         case previousResponseID = "previous_response_id"
+        case stream
     }
 }
 

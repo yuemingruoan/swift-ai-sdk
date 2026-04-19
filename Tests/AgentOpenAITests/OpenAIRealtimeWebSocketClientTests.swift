@@ -1,0 +1,79 @@
+import AgentOpenAI
+import Foundation
+import Testing
+
+struct OpenAIRealtimeWebSocketClientTests {
+    @Test func requestBuilder_sets_realtime_endpoint_and_auth_header() throws {
+        let builder = OpenAIRealtimeRequestBuilder(
+            configuration: .init(apiKey: "sk-test", model: "gpt-realtime")
+        )
+        let request = try builder.makeURLRequest()
+
+        #expect(request.url?.absoluteString == "wss://api.openai.com/v1/realtime?model=gpt-realtime")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer sk-test")
+    }
+
+    @Test func websocket_client_sends_and_receives_json_events() async throws {
+        let session = StubWebSocketSession(
+            incomingMessages: [
+                #"{"type":"session.created","session":{"id":"sess_123"}}"#,
+            ]
+        )
+        let client = OpenAIRealtimeWebSocketClient(
+            configuration: .init(apiKey: "sk-test", model: "gpt-realtime"),
+            session: session
+        )
+
+        try await client.connect()
+        try await client.send(
+            .init(
+                type: "session.update",
+                payload: [
+                    "session": .object([
+                        "type": .string("realtime"),
+                        "instructions": .string("Be concise"),
+                    ]),
+                ]
+            )
+        )
+
+        let event = try await client.receive()
+        #expect(event.type == "session.created")
+        #expect(event.payload["session"] == .object(["id": .string("sess_123")]))
+        let lastSentText = try #require(await session.connection.lastSentText)
+        #expect(lastSentText.contains("\"type\":\"session.update\""))
+    }
+}
+
+private final class StubWebSocketSession: @unchecked Sendable, OpenAIWebSocketSession {
+    let connection: StubWebSocketConnection
+
+    init(incomingMessages: [String]) {
+        self.connection = StubWebSocketConnection(incomingMessages: incomingMessages)
+    }
+
+    func makeConnection(with request: URLRequest) -> any OpenAIWebSocketConnection {
+        connection
+    }
+}
+
+private actor StubWebSocketConnection: OpenAIWebSocketConnection {
+    private var incomingMessages: [String]
+    var lastSentText: String?
+
+    init(incomingMessages: [String]) {
+        self.incomingMessages = incomingMessages
+    }
+
+    func connect() async {}
+
+    func send(text: String) async throws {
+        lastSentText = text
+    }
+
+    func receiveText() async throws -> String {
+        incomingMessages.removeFirst()
+    }
+
+    func cancel() async {}
+}

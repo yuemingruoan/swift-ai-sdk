@@ -29,6 +29,10 @@ public extension OpenAIResponse {
         for item in output {
             switch item {
             case .message(let message):
+                guard message.role == .assistant else {
+                    throw OpenAIConversionError.unsupportedResponseMessageRole(message.role.rawValue)
+                }
+
                 let parts = message.content.map { content in
                     switch content {
                     case .outputText(let text):
@@ -69,7 +73,13 @@ private func parseToolValue(from json: String, callID: String) throws -> ToolVal
         throw OpenAIConversionError.invalidFunctionCallArguments(callID)
     }
 
-    return try convertToolValue(object, callID: callID)
+    guard let dictionary = object as? [String: Any] else {
+        throw OpenAIConversionError.invalidFunctionCallArguments(callID)
+    }
+
+    return .object(
+        try dictionary.mapValues { try convertToolValue($0, callID: callID) }
+    )
 }
 
 private func convertToolValue(_ value: Any, callID: String) throws -> ToolValue {

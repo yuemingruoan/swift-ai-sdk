@@ -78,6 +78,47 @@ struct OpenAIResponsesClientTests {
         }
     }
 
+    @Test func response_projection_rejects_non_object_function_call_arguments() {
+        let response = OpenAIResponse(
+            id: "resp_123",
+            status: .completed,
+            output: [
+                .functionCall(
+                    .init(
+                        callID: "call_123",
+                        name: "lookup_weather",
+                        arguments: "[]",
+                        status: .completed
+                    )
+                ),
+            ]
+        )
+
+        #expect(throws: OpenAIConversionError.invalidFunctionCallArguments("call_123")) {
+            _ = try response.projectedOutput()
+        }
+    }
+
+    @Test func response_projection_rejects_non_assistant_message_roles() {
+        let response = OpenAIResponse(
+            id: "resp_123",
+            status: .completed,
+            output: [
+                .message(
+                    .init(
+                        id: "msg_123",
+                        role: .developer,
+                        content: [.outputText("internal note")]
+                    )
+                ),
+            ]
+        )
+
+        #expect(throws: OpenAIConversionError.unsupportedResponseMessageRole("developer")) {
+            _ = try response.projectedOutput()
+        }
+    }
+
     @Test func request_builder_encodes_agent_messages_as_openai_input_messages() throws {
         let request = try OpenAIResponseRequest(
             model: "gpt-5.4",
