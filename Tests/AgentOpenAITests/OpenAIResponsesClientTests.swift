@@ -400,6 +400,83 @@ struct OpenAIResponsesClientTests {
             ]),
         ])
     }
+
+    @Test func client_can_resolve_tool_calls_with_executor() async throws {
+        let tool = ToolDescriptor.remote(
+            name: "lookup_weather",
+            transport: "weather-api",
+            inputSchema: .object(
+                properties: ["city": .string],
+                required: ["city"]
+            )
+        )
+        let transport = SequencedResponsesTransport(
+            responses: [
+                OpenAIResponse(
+                    id: "resp_1",
+                    status: .completed,
+                    output: [
+                        .functionCall(
+                            .init(
+                                callID: "call_123",
+                                name: "lookup_weather",
+                                arguments: "{\"city\":\"Paris\"}",
+                                status: .completed
+                            )
+                        ),
+                    ]
+                ),
+                OpenAIResponse(
+                    id: "resp_2",
+                    status: .completed,
+                    output: [
+                        .message(
+                            .init(
+                                id: "msg_123",
+                                role: .assistant,
+                                content: [.outputText("Paris is sunny.")]
+                            )
+                        ),
+                    ]
+                ),
+            ]
+        )
+        let registry = ToolRegistry()
+        try await registry.register(tool)
+        let executor = ToolExecutor(registry: registry)
+        await executor.register(RecordingWeatherRemoteTransport())
+
+        let client = OpenAIResponsesClient(transport: transport)
+        let projection = try await client.resolveToolCalls(
+            try OpenAIResponseRequest(
+                model: "gpt-5.4",
+                messages: [.userText("what is the weather in Paris?")],
+                tools: [tool],
+                toolChoice: .required
+            ),
+            using: executor
+        )
+
+        #expect(projection.toolCalls.isEmpty)
+        #expect(projection.messages == [
+            AgentMessage(role: .assistant, parts: [.text("Paris is sunny.")]),
+        ])
+
+        let requests = await transport.recordedRequests
+        #expect(requests.count == 2)
+        #expect(requests[0].tools?.map(\.name) == ["lookup_weather"])
+        #expect(requests[0].toolChoice == .required)
+        #expect(requests[1].previousResponseID == "resp_1")
+        #expect(requests[1].tools?.map(\.name) == ["lookup_weather"])
+        #expect(requests[1].toolChoice == nil)
+
+        let followUpPayload = try jsonObject(for: requests[1])
+        let followUpInput = try #require(followUpPayload["input"] as? [[String: Any]])
+        #expect(followUpInput.count == 1)
+        #expect(followUpInput[0]["type"] as? String == "function_call_output")
+        #expect(followUpInput[0]["call_id"] as? String == "call_123")
+        #expect(followUpInput[0]["output"] as? String == #"{"forecast":"sunny"}"#)
+    }
 }
 
 private struct StubResponsesStreamingTransport: OpenAIResponsesStreamingTransport {
@@ -432,6 +509,37 @@ private actor StubResponsesTransport: OpenAIResponsesTransport {
     func createResponse(_ request: OpenAIResponseRequest) async throws -> OpenAIResponse {
         lastRequest = request
         return response
+    }
+}
+
+private actor SequencedResponsesTransport: OpenAIResponsesTransport {
+    private let responses: [OpenAIResponse]
+    private var index = 0
+    private var requests: [OpenAIResponseRequest] = []
+
+    init(responses: [OpenAIResponse]) {
+        self.responses = responses
+    }
+
+    var recordedRequests: [OpenAIResponseRequest] {
+        requests
+    }
+
+    func createResponse(_ request: OpenAIResponseRequest) async throws -> OpenAIResponse {
+        requests.append(request)
+        let response = responses[index]
+        index += 1
+        return response
+    }
+}
+
+private actor RecordingWeatherRemoteTransport: RemoteToolTransport {
+    let transportID = "weather-api"
+
+    func invoke(_ invocation: ToolInvocation) async throws -> ToolResult {
+        #expect(invocation.toolName == "lookup_weather")
+        #expect(invocation.arguments == ["city": .string("Paris")])
+        return ToolResult(payload: .object(["forecast": .string("sunny")]))
     }
 }
 
