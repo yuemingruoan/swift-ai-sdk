@@ -156,22 +156,88 @@ public struct OpenAIRealtimeConversationItem: Codable, Equatable, Sendable {
     }
 }
 
+public struct OpenAIRealtimeFunctionCallOutputItem: Codable, Equatable, Sendable {
+    public var type: String
+    public var callID: String
+    public var output: String
+
+    public init(callID: String, output: String) {
+        self.type = "function_call_output"
+        self.callID = callID
+        self.output = output
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case callID = "call_id"
+        case output
+    }
+}
+
 public struct OpenAIRealtimeConversationItemCreateEvent: Codable, Equatable, Sendable {
     public var type: String
-    public var item: OpenAIRealtimeConversationItem
+    public var item: OpenAIRealtimeConversationItemPayload
 
-    public init(item: OpenAIRealtimeConversationItem) {
+    public init(item: OpenAIRealtimeConversationItemPayload) {
         self.type = "conversation.item.create"
         self.item = item
     }
 
     public static func userText(_ text: String) -> Self {
         Self(
-            item: OpenAIRealtimeConversationItem(
-                role: "user",
-                content: [.init(text: text)]
+            item: .message(
+                OpenAIRealtimeConversationItem(
+                    role: "user",
+                    content: [.init(text: text)]
+                )
             )
         )
+    }
+
+    public static func functionCallOutput(callID: String, output: String) -> Self {
+        Self(
+            item: .functionCallOutput(
+                OpenAIRealtimeFunctionCallOutputItem(
+                    callID: callID,
+                    output: output
+                )
+            )
+        )
+    }
+}
+
+public enum OpenAIRealtimeConversationItemPayload: Equatable, Sendable {
+    case message(OpenAIRealtimeConversationItem)
+    case functionCallOutput(OpenAIRealtimeFunctionCallOutputItem)
+}
+
+extension OpenAIRealtimeConversationItemPayload: Codable {
+    enum CodingKeys: String, CodingKey {
+        case type
+    }
+
+    enum Kind: String, Codable {
+        case message
+        case functionCallOutput = "function_call_output"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(Kind.self, forKey: .type) {
+        case .message:
+            self = .message(try OpenAIRealtimeConversationItem(from: decoder))
+        case .functionCallOutput:
+            self = .functionCallOutput(try OpenAIRealtimeFunctionCallOutputItem(from: decoder))
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        switch self {
+        case .message(let item):
+            try item.encode(to: encoder)
+        case .functionCallOutput(let item):
+            try item.encode(to: encoder)
+        }
     }
 }
 
@@ -349,9 +415,63 @@ public actor OpenAIRealtimeWebSocketClient {
         try await send(try JSONDecoder().decode(OpenAIRealtimeEvent.self, from: data))
     }
 
+    public func sendFunctionCallOutput(callID: String, output: String) async throws {
+        let data = try JSONEncoder().encode(
+            OpenAIRealtimeConversationItemCreateEvent.functionCallOutput(
+                callID: callID,
+                output: output
+            )
+        )
+        try await send(try JSONDecoder().decode(OpenAIRealtimeEvent.self, from: data))
+    }
+
     public func createResponse() async throws {
         let data = try JSONEncoder().encode(OpenAIRealtimeResponseCreateEvent())
         try await send(try JSONDecoder().decode(OpenAIRealtimeEvent.self, from: data))
+    }
+
+    public func receiveUntilTurnFinished(
+        using executor: ToolExecutor,
+        maxIterations: Int = 8
+    ) async throws -> [AgentStreamEvent] {
+        var events: [AgentStreamEvent] = []
+        var remainingIterations = maxIterations
+
+        while true {
+            guard remainingIterations > 0 else {
+                throw OpenAIResponsesClientError.toolCallLimitExceeded(maxIterations)
+            }
+
+            let realtimeEvent = try await receive()
+            switch realtimeEvent.type {
+            case "response.output_text.delta":
+                let projected = try realtimeEvent.projectedAgentStreamEvents()
+                events.append(contentsOf: projected)
+
+            case "response.completed", "response.done":
+                let response = try decodeCompletedResponse(from: realtimeEvent)
+                let projection = try response.projectedOutput()
+                let projected = projection.agentStreamEvents()
+                events.append(contentsOf: projected)
+
+                if projection.toolCalls.isEmpty {
+                    return events
+                }
+
+                for toolCall in projection.toolCalls {
+                    let result = try await executor.invoke(toolCall.invocation)
+                    try await sendFunctionCallOutput(
+                        callID: toolCall.callID,
+                        output: try encodeToolResult(result)
+                    )
+                }
+                try await createResponse()
+                remainingIterations -= 1
+
+            default:
+                continue
+            }
+        }
     }
 
     public func disconnect() async {
@@ -369,7 +489,7 @@ public extension OpenAIRealtimeEvent {
             }
             return [.textDelta(delta)]
 
-        case "response.completed":
+        case "response.completed", "response.done":
             guard let responseValue = payload["response"] else {
                 return []
             }
@@ -379,6 +499,113 @@ public extension OpenAIRealtimeEvent {
 
         default:
             return []
+        }
+    }
+}
+
+private extension OpenAIRealtimeWebSocketClient {
+    func decodeCompletedResponse(from event: OpenAIRealtimeEvent) throws -> OpenAIResponse {
+        guard let responseValue = event.payload["response"] else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: [], debugDescription: "missing response payload")
+            )
+        }
+        let data = try JSONEncoder().encode(responseValue)
+        return try JSONDecoder().decode(OpenAIResponse.self, from: data)
+    }
+
+    func encodeToolResult(_ result: ToolResult) throws -> String {
+        switch result.payload {
+        case .string(let text):
+            return text
+        default:
+            let data = try JSONEncoder().encode(OpenAIRealtimeToolJSONValue(toolValue: result.payload))
+            return String(decoding: data, as: UTF8.self)
+        }
+    }
+}
+
+private indirect enum OpenAIRealtimeToolJSONValue {
+    case string(String)
+    case integer(Int)
+    case number(Double)
+    case boolean(Bool)
+    case array([OpenAIRealtimeToolJSONValue])
+    case object([String: OpenAIRealtimeToolJSONValue])
+    case null
+
+    init(toolValue: ToolValue) {
+        switch toolValue {
+        case .string(let string):
+            self = .string(string)
+        case .integer(let integer):
+            self = .integer(integer)
+        case .number(let number):
+            self = .number(number)
+        case .boolean(let boolean):
+            self = .boolean(boolean)
+        case .array(let array):
+            self = .array(array.map(OpenAIRealtimeToolJSONValue.init(toolValue:)))
+        case .object(let object):
+            self = .object(object.mapValues(OpenAIRealtimeToolJSONValue.init(toolValue:)))
+        case .null:
+            self = .null
+        }
+    }
+}
+
+extension OpenAIRealtimeToolJSONValue: Codable {
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            self = .null
+            return
+        }
+        if let string = try? container.decode(String.self) {
+            self = .string(string)
+            return
+        }
+        if let boolean = try? container.decode(Bool.self) {
+            self = .boolean(boolean)
+            return
+        }
+        if let integer = try? container.decode(Int.self) {
+            self = .integer(integer)
+            return
+        }
+        if let number = try? container.decode(Double.self) {
+            self = .number(number)
+            return
+        }
+        if let array = try? container.decode([OpenAIRealtimeToolJSONValue].self) {
+            self = .array(array)
+            return
+        }
+        if let object = try? container.decode([String: OpenAIRealtimeToolJSONValue].self) {
+            self = .object(object)
+            return
+        }
+
+        throw DecodingError.dataCorruptedError(in: container, debugDescription: "unsupported tool JSON value")
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let string):
+            try container.encode(string)
+        case .integer(let integer):
+            try container.encode(integer)
+        case .number(let number):
+            try container.encode(number)
+        case .boolean(let boolean):
+            try container.encode(boolean)
+        case .array(let array):
+            try container.encode(array)
+        case .object(let object):
+            try container.encode(object)
+        case .null:
+            try container.encodeNil()
         }
     }
 }

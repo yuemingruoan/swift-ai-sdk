@@ -134,6 +134,60 @@ struct OpenAIRealtimeWebSocketClientTests {
         #expect(responseTools.count == 1)
         #expect(responseTools[0]["name"] as? String == "lookup_weather")
     }
+
+    @Test func websocket_client_can_resolve_realtime_tool_calls() async throws {
+        let toolCallResponse = #"{"type":"response.done","response":{"id":"resp_1","status":"completed","output":[{"type":"function_call","call_id":"call_123","name":"lookup_weather","arguments":"{\"city\":\"Paris\"}","status":"completed"}]}}"#
+        let finalResponse = #"{"type":"response.done","response":{"id":"resp_2","status":"completed","output":[{"type":"message","id":"msg_2","role":"assistant","content":[{"type":"output_text","text":"Paris is sunny."}]}]}}"#
+        let session = StubWebSocketSession(
+            incomingMessages: [
+                toolCallResponse,
+                finalResponse,
+            ]
+        )
+        let registry = ToolRegistry()
+        try await registry.register(
+            .remote(
+                name: "lookup_weather",
+                transport: "weather-api",
+                inputSchema: .object(properties: ["city": .string], required: ["city"])
+            )
+        )
+        let executor = ToolExecutor(registry: registry)
+        await executor.register(RecordingRealtimeWeatherTransport())
+        let client = OpenAIRealtimeWebSocketClient(
+            configuration: .init(apiKey: "sk-test", model: "gpt-realtime"),
+            session: session
+        )
+
+        try await client.connect()
+        let events = try await client.receiveUntilTurnFinished(using: executor)
+
+        #expect(events == [
+            .toolCall(
+                .init(
+                    callID: "call_123",
+                    invocation: ToolInvocation(
+                        toolName: "lookup_weather",
+                        arguments: ["city": .string("Paris")]
+                    )
+                )
+            ),
+            .messagesCompleted([
+                AgentMessage(role: .assistant, parts: [.text("Paris is sunny.")]),
+            ]),
+        ])
+
+        let sentTexts = await session.connection.sentTexts
+        #expect(sentTexts.count == 2)
+        #expect(sentTexts[0].contains("\"type\":\"conversation.item.create\""))
+        #expect(sentTexts[0].contains("\"type\":\"function_call_output\""))
+        #expect(sentTexts[0].contains("\"call_id\":\"call_123\""))
+        let parsedOutputEvent = try jsonObject(from: sentTexts[0])
+        let outputEvent = try #require(parsedOutputEvent)
+        let outputItem = try #require(outputEvent["item"] as? [String: Any])
+        #expect(outputItem["output"] as? String == #"{"forecast":"sunny"}"#)
+        #expect(sentTexts[1].contains("\"type\":\"response.create\""))
+    }
 }
 
 private final class StubWebSocketSession: @unchecked Sendable, OpenAIWebSocketSession {
@@ -150,7 +204,11 @@ private final class StubWebSocketSession: @unchecked Sendable, OpenAIWebSocketSe
 
 private actor StubWebSocketConnection: OpenAIWebSocketConnection {
     private var incomingMessages: [String]
-    var lastSentText: String?
+    private(set) var sentTexts: [String] = []
+
+    var lastSentText: String? {
+        sentTexts.last
+    }
 
     init(incomingMessages: [String]) {
         self.incomingMessages = incomingMessages
@@ -159,7 +217,7 @@ private actor StubWebSocketConnection: OpenAIWebSocketConnection {
     func connect() async {}
 
     func send(text: String) async throws {
-        lastSentText = text
+        sentTexts.append(text)
     }
 
     func receiveText() async throws -> String {
@@ -172,4 +230,18 @@ private actor StubWebSocketConnection: OpenAIWebSocketConnection {
 private func encode<T: Encodable>(_ value: T) throws -> [String: Any] {
     let data = try JSONEncoder().encode(value)
     return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+}
+
+private func jsonObject(from text: String) throws -> [String: Any]? {
+    try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]
+}
+
+private actor RecordingRealtimeWeatherTransport: RemoteToolTransport {
+    let transportID = "weather-api"
+
+    func invoke(_ invocation: ToolInvocation) async throws -> ToolResult {
+        #expect(invocation.toolName == "lookup_weather")
+        #expect(invocation.arguments == ["city": .string("Paris")])
+        return ToolResult(payload: .object(["forecast": .string("sunny")]))
+    }
 }
