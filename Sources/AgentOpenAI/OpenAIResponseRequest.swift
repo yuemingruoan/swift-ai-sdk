@@ -6,29 +6,40 @@ public struct OpenAIResponseRequest: Codable, Equatable, Sendable {
     public var input: [OpenAIResponseInputItem]
     public var previousResponseID: String?
     public var stream: Bool?
+    public var tools: [OpenAIResponseTool]?
+    public var toolChoice: OpenAIResponseToolChoice?
 
     public init(
         model: String,
         input: [OpenAIResponseInputItem],
         previousResponseID: String? = nil,
-        stream: Bool? = nil
+        stream: Bool? = nil,
+        tools: [OpenAIResponseTool]? = nil,
+        toolChoice: OpenAIResponseToolChoice? = nil
     ) {
         self.model = model
         self.input = input
         self.previousResponseID = previousResponseID
         self.stream = stream
+        self.tools = tools
+        self.toolChoice = toolChoice
     }
 
     public init(
         model: String,
         messages: [AgentMessage],
-        previousResponseID: String? = nil
+        previousResponseID: String? = nil,
+        stream: Bool? = nil,
+        tools: [ToolDescriptor] = [],
+        toolChoice: OpenAIResponseToolChoice? = nil
     ) throws {
         self.init(
             model: model,
             input: try messages.map { .message(try .init(agentMessage: $0)) },
             previousResponseID: previousResponseID,
-            stream: nil
+            stream: stream,
+            tools: tools.map(OpenAIResponseTool.init(descriptor:)),
+            toolChoice: toolChoice
         )
     }
 
@@ -36,6 +47,8 @@ public struct OpenAIResponseRequest: Codable, Equatable, Sendable {
         model: String,
         previousResponseID: String? = nil,
         stream: Bool? = nil,
+        tools: [ToolDescriptor] = [],
+        toolChoice: OpenAIResponseToolChoice? = nil,
         configureInput: (inout OpenAIResponseInputBuilder) -> Void
     ) {
         var builder = OpenAIResponseInputBuilder()
@@ -44,7 +57,9 @@ public struct OpenAIResponseRequest: Codable, Equatable, Sendable {
             model: model,
             input: builder.build(),
             previousResponseID: previousResponseID,
-            stream: stream
+            stream: stream,
+            tools: tools.map(OpenAIResponseTool.init(descriptor:)),
+            toolChoice: toolChoice
         )
     }
 
@@ -53,6 +68,137 @@ public struct OpenAIResponseRequest: Codable, Equatable, Sendable {
         case input
         case previousResponseID = "previous_response_id"
         case stream
+        case tools
+        case toolChoice = "tool_choice"
+    }
+}
+
+public enum OpenAIResponseToolChoice: String, Codable, Equatable, Sendable {
+    case none
+    case auto
+    case required
+}
+
+public struct OpenAIResponseTool: Codable, Equatable, Sendable {
+    public var type: String
+    public var name: String
+    public var description: String?
+    public var parameters: OpenAIResponseToolSchema
+
+    public init(
+        name: String,
+        description: String? = nil,
+        parameters: OpenAIResponseToolSchema
+    ) {
+        self.type = "function"
+        self.name = name
+        self.description = description
+        self.parameters = parameters
+    }
+
+    public init(descriptor: ToolDescriptor) {
+        self.init(
+            name: descriptor.name,
+            parameters: OpenAIResponseToolSchema(
+                toolInputSchema: descriptor.inputSchema ?? .object()
+            )
+        )
+    }
+}
+
+public indirect enum OpenAIResponseToolSchema: Equatable, Sendable {
+    case string
+    case integer
+    case number
+    case boolean
+    case array(items: OpenAIResponseToolSchema)
+    case object(
+        properties: [String: OpenAIResponseToolSchema] = [:],
+        required: [String] = [],
+        additionalProperties: Bool = false
+    )
+
+    public init(toolInputSchema: ToolInputSchema) {
+        switch toolInputSchema {
+        case .string:
+            self = .string
+        case .integer:
+            self = .integer
+        case .number:
+            self = .number
+        case .boolean:
+            self = .boolean
+        case .array(let items):
+            self = .array(items: OpenAIResponseToolSchema(toolInputSchema: items))
+        case .object(let properties, let required):
+            self = .object(
+                properties: properties.mapValues(OpenAIResponseToolSchema.init(toolInputSchema:)),
+                required: required
+            )
+        }
+    }
+}
+
+extension OpenAIResponseToolSchema: Codable {
+    enum CodingKeys: String, CodingKey {
+        case type
+        case items
+        case properties
+        case required
+        case additionalProperties
+    }
+
+    enum Kind: String, Codable {
+        case string
+        case integer
+        case number
+        case boolean
+        case array
+        case object
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(Kind.self, forKey: .type) {
+        case .string:
+            self = .string
+        case .integer:
+            self = .integer
+        case .number:
+            self = .number
+        case .boolean:
+            self = .boolean
+        case .array:
+            self = .array(items: try container.decode(OpenAIResponseToolSchema.self, forKey: .items))
+        case .object:
+            self = .object(
+                properties: try container.decodeIfPresent([String: OpenAIResponseToolSchema].self, forKey: .properties) ?? [:],
+                required: try container.decodeIfPresent([String].self, forKey: .required) ?? [],
+                additionalProperties: try container.decodeIfPresent(Bool.self, forKey: .additionalProperties) ?? false
+            )
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .string:
+            try container.encode(Kind.string, forKey: .type)
+        case .integer:
+            try container.encode(Kind.integer, forKey: .type)
+        case .number:
+            try container.encode(Kind.number, forKey: .type)
+        case .boolean:
+            try container.encode(Kind.boolean, forKey: .type)
+        case .array(let items):
+            try container.encode(Kind.array, forKey: .type)
+            try container.encode(items, forKey: .items)
+        case .object(let properties, let required, let additionalProperties):
+            try container.encode(Kind.object, forKey: .type)
+            try container.encode(properties, forKey: .properties)
+            try container.encode(required, forKey: .required)
+            try container.encode(additionalProperties, forKey: .additionalProperties)
+        }
     }
 }
 

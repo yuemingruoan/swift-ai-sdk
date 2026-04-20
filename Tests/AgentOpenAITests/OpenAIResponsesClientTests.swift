@@ -212,6 +212,45 @@ struct OpenAIResponsesClientTests {
         #expect(input[2]["call_id"] as? String == "call_123")
     }
 
+    @Test func request_builder_encodes_sdk_tool_descriptors_as_responses_function_tools() throws {
+        let request = try OpenAIResponseRequest(
+            model: "gpt-5.4",
+            messages: [.userText("what is the weather in Paris?")],
+            tools: [
+                ToolDescriptor.remote(
+                    name: "lookup_weather",
+                    transport: "weather-api",
+                    inputSchema: .object(
+                        properties: [
+                            "city": .string,
+                            "days": .integer,
+                        ],
+                        required: ["city"]
+                    )
+                ),
+            ],
+            toolChoice: .required
+        )
+
+        let payload = try jsonObject(for: request)
+        let tools = try #require(payload["tools"] as? [[String: Any]])
+        #expect(payload["tool_choice"] as? String == "required")
+        #expect(tools.count == 1)
+        #expect(tools[0]["type"] as? String == "function")
+        #expect(tools[0]["name"] as? String == "lookup_weather")
+
+        let parameters = try #require(tools[0]["parameters"] as? [String: Any])
+        #expect(parameters["type"] as? String == "object")
+        #expect(parameters["additionalProperties"] as? Bool == false)
+
+        let properties = try #require(parameters["properties"] as? [String: Any])
+        let city = try #require(properties["city"] as? [String: Any])
+        let days = try #require(properties["days"] as? [String: Any])
+        #expect(city["type"] as? String == "string")
+        #expect(days["type"] as? String == "integer")
+        #expect(parameters["required"] as? [String] == ["city"])
+    }
+
     @Test func client_builds_request_and_delegates_to_transport() async throws {
         let transport = StubResponsesTransport()
         let client = OpenAIResponsesClient(transport: transport)
