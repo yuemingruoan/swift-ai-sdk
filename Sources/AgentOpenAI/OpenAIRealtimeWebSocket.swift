@@ -402,16 +402,41 @@ public actor OpenAIRealtimeWebSocketClient {
     }
 
     public func updateSession(instructions: String) async throws {
+        try await updateSession(.init(instructions: instructions))
+    }
+
+    public func updateSession(_ session: OpenAIRealtimeSession) async throws {
         let data = try JSONEncoder().encode(
-            OpenAIRealtimeSessionUpdateEvent(
-                session: .init(instructions: instructions)
-            )
+            OpenAIRealtimeSessionUpdateEvent(session: session)
         )
         try await send(try JSONDecoder().decode(OpenAIRealtimeEvent.self, from: data))
     }
 
     public func sendUserText(_ text: String) async throws {
         let data = try JSONEncoder().encode(OpenAIRealtimeConversationItemCreateEvent.userText(text))
+        try await send(try JSONDecoder().decode(OpenAIRealtimeEvent.self, from: data))
+    }
+
+    public func sendUserMessage(_ message: AgentMessage) async throws {
+        let content = try message.parts.map { part -> OpenAIRealtimeInputTextContent in
+            switch part {
+            case .text(let text):
+                return .init(text: text)
+            case .image:
+                throw OpenAIRealtimeMessageConversionError.unsupportedMessagePart("image")
+            }
+        }
+
+        let data = try JSONEncoder().encode(
+            OpenAIRealtimeConversationItemCreateEvent(
+                item: .message(
+                    OpenAIRealtimeConversationItem(
+                        role: message.role.rawValue,
+                        content: content
+                    )
+                )
+            )
+        )
         try await send(try JSONDecoder().decode(OpenAIRealtimeEvent.self, from: data))
     }
 
@@ -426,12 +451,21 @@ public actor OpenAIRealtimeWebSocketClient {
     }
 
     public func createResponse() async throws {
+        try await createResponse(nil)
+    }
+
+    public func createResponse(_ response: OpenAIRealtimeResponseConfiguration?) async throws {
         let data = try JSONEncoder().encode(OpenAIRealtimeResponseCreateEvent())
+        if let response {
+            let data = try JSONEncoder().encode(OpenAIRealtimeResponseCreateEvent(response: response))
+            try await send(try JSONDecoder().decode(OpenAIRealtimeEvent.self, from: data))
+            return
+        }
         try await send(try JSONDecoder().decode(OpenAIRealtimeEvent.self, from: data))
     }
 
     public func receiveUntilTurnFinished(
-        using executor: ToolExecutor,
+        using executor: ToolExecutor? = nil,
         maxIterations: Int = 8
     ) async throws -> [AgentStreamEvent] {
         var events: [AgentStreamEvent] = []
@@ -458,6 +492,10 @@ public actor OpenAIRealtimeWebSocketClient {
                     return events
                 }
 
+                guard let executor else {
+                    return events
+                }
+
                 for toolCall in projection.toolCalls {
                     let result = try await executor.invoke(toolCall.invocation)
                     try await sendFunctionCallOutput(
@@ -478,6 +516,10 @@ public actor OpenAIRealtimeWebSocketClient {
         await connection?.cancel()
         connection = nil
     }
+}
+
+public enum OpenAIRealtimeMessageConversionError: Error, Equatable, Sendable {
+    case unsupportedMessagePart(String)
 }
 
 public extension OpenAIRealtimeEvent {

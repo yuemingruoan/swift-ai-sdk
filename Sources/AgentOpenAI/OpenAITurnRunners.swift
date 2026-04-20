@@ -1,0 +1,167 @@
+import AgentCore
+import Foundation
+
+public struct OpenAIResponsesTurnRunnerConfiguration: Equatable, Sendable {
+    public var model: String
+    public var previousResponseID: String?
+    public var tools: [ToolDescriptor]
+    public var toolChoice: OpenAIResponseToolChoice?
+    public var stream: Bool
+
+    public init(
+        model: String,
+        previousResponseID: String? = nil,
+        tools: [ToolDescriptor] = [],
+        toolChoice: OpenAIResponseToolChoice? = nil,
+        stream: Bool = false
+    ) {
+        self.model = model
+        self.previousResponseID = previousResponseID
+        self.tools = tools
+        self.toolChoice = toolChoice
+        self.stream = stream
+    }
+}
+
+public struct OpenAIResponsesTurnRunner: AgentTurnRunner, Sendable {
+    public let client: OpenAIResponsesClient
+    public let configuration: OpenAIResponsesTurnRunnerConfiguration
+    public let executor: ToolExecutor?
+
+    public init(
+        client: OpenAIResponsesClient,
+        configuration: OpenAIResponsesTurnRunnerConfiguration,
+        executor: ToolExecutor? = nil
+    ) {
+        self.client = client
+        self.configuration = configuration
+        self.executor = executor
+    }
+
+    public func runTurn(input: [AgentMessage]) throws -> AsyncThrowingStream<AgentStreamEvent, Error> {
+        let request = try OpenAIResponseRequest(
+            model: configuration.model,
+            messages: input,
+            previousResponseID: configuration.previousResponseID,
+            stream: configuration.stream,
+            tools: configuration.tools,
+            toolChoice: configuration.toolChoice
+        )
+
+        if let executor {
+            return client.projectedResponseEvents(
+                request,
+                using: executor,
+                stream: configuration.stream
+            )
+        }
+
+        return client.projectedResponseEvents(
+            request,
+            stream: configuration.stream
+        )
+    }
+}
+
+public struct OpenAIRealtimeTurnRunnerConfiguration: Equatable, Sendable {
+    public var instructions: String?
+    public var tools: [ToolDescriptor]
+    public var toolChoice: OpenAIResponseToolChoice?
+
+    public init(
+        instructions: String? = nil,
+        tools: [ToolDescriptor] = [],
+        toolChoice: OpenAIResponseToolChoice? = nil
+    ) {
+        self.instructions = instructions
+        self.tools = tools
+        self.toolChoice = toolChoice
+    }
+}
+
+public enum OpenAIRealtimeTurnRunnerError: Error, Equatable, Sendable {
+    case unsupportedMessageRole(String)
+    case unsupportedMessagePart(String)
+}
+
+public actor OpenAIRealtimeTurnRunner: AgentTurnRunner {
+    public let client: OpenAIRealtimeWebSocketClient
+    public let configuration: OpenAIRealtimeTurnRunnerConfiguration
+    public let executor: ToolExecutor?
+    private var isConnected = false
+
+    public init(
+        client: OpenAIRealtimeWebSocketClient,
+        configuration: OpenAIRealtimeTurnRunnerConfiguration = .init(),
+        executor: ToolExecutor? = nil
+    ) {
+        self.client = client
+        self.configuration = configuration
+        self.executor = executor
+    }
+
+    public nonisolated func runTurn(
+        input: [AgentMessage]
+    ) throws -> AsyncThrowingStream<AgentStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    try await self.ensureConnected()
+                    try await self.configureSessionIfNeeded()
+                    for message in input {
+                        try await self.send(message: message)
+                    }
+                    try await self.client.createResponse()
+
+                    let events = try await self.client.receiveUntilTurnFinished(using: self.executor)
+                    for event in events {
+                        continuation.yield(event)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
+}
+
+private extension OpenAIRealtimeTurnRunner {
+    func ensureConnected() async throws {
+        guard !isConnected else { return }
+        try await client.connect()
+        isConnected = true
+    }
+
+    func configureSessionIfNeeded() async throws {
+        let shouldUpdateSession =
+            configuration.instructions != nil ||
+            !configuration.tools.isEmpty ||
+            configuration.toolChoice != nil
+
+        guard shouldUpdateSession else {
+            return
+        }
+
+        try await client.updateSession(
+            .init(
+                instructions: configuration.instructions,
+                tools: configuration.tools,
+                toolChoice: configuration.toolChoice
+            )
+        )
+    }
+
+    func send(message: AgentMessage) async throws {
+        switch message.role {
+        case .user:
+            try await client.sendUserMessage(message)
+        case .system, .developer, .assistant, .tool:
+            throw OpenAIRealtimeTurnRunnerError.unsupportedMessageRole(message.role.rawValue)
+        }
+    }
+}

@@ -18,6 +18,7 @@ let package = Package(
         .library(name: "AgentOpenAI", targets: ["AgentOpenAI"]),
         .library(name: "AgentPersistence", targets: ["AgentPersistence"]),
         .library(name: "AgentMacros", targets: ["AgentMacros"]),
+        .executable(name: "OpenAIResponsesExample", targets: ["OpenAIResponsesExample"]),
     ],
     dependencies: [
         .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "600.0.0"),
@@ -59,6 +60,14 @@ let package = Package(
                 "AgentMacrosPlugin",
             ],
             path: "Sources/AgentMacros"
+        ),
+        .executableTarget(
+            name: "OpenAIResponsesExample",
+            dependencies: [
+                "AgentCore",
+                "AgentOpenAI",
+            ],
+            path: "Examples/OpenAIResponsesExample"
         ),
         .testTarget(
             name: "AgentCoreTests",
