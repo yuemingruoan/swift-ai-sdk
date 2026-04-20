@@ -1,3 +1,4 @@
+import AgentCore
 import AgentOpenAI
 import Foundation
 import Testing
@@ -87,6 +88,51 @@ struct OpenAIRealtimeWebSocketClientTests {
 
         let responseCreate = try encode(OpenAIRealtimeResponseCreateEvent())
         #expect(responseCreate["type"] as? String == "response.create")
+    }
+
+    @Test func structured_realtime_events_encode_sdk_tool_descriptors() throws {
+        let tool = ToolDescriptor.remote(
+            name: "lookup_weather",
+            transport: "weather-api",
+            inputSchema: .object(
+                properties: [
+                    "city": .string,
+                    "days": .integer,
+                ],
+                required: ["city"]
+            )
+        )
+
+        let sessionUpdate = try encode(
+            OpenAIRealtimeSessionUpdateEvent(
+                session: .init(
+                    instructions: "Be concise",
+                    tools: [tool],
+                    toolChoice: .auto
+                )
+            )
+        )
+        let session = try #require(sessionUpdate["session"] as? [String: Any])
+        #expect(session["tool_choice"] as? String == "auto")
+        let sessionTools = try #require(session["tools"] as? [[String: Any]])
+        #expect(sessionTools.count == 1)
+        #expect(sessionTools[0]["type"] as? String == "function")
+        #expect(sessionTools[0]["name"] as? String == "lookup_weather")
+
+        let responseCreate = try encode(
+            OpenAIRealtimeResponseCreateEvent(
+                response: .init(
+                    tools: [tool],
+                    toolChoice: .required
+                )
+            )
+        )
+        #expect(responseCreate["type"] as? String == "response.create")
+        let response = try #require(responseCreate["response"] as? [String: Any])
+        #expect(response["tool_choice"] as? String == "required")
+        let responseTools = try #require(response["tools"] as? [[String: Any]])
+        #expect(responseTools.count == 1)
+        #expect(responseTools[0]["name"] as? String == "lookup_weather")
     }
 }
 

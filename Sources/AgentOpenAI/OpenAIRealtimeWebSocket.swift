@@ -104,9 +104,23 @@ public struct OpenAIRealtimeEvent: Codable, Equatable, Sendable {
 
 public struct OpenAIRealtimeSession: Codable, Equatable, Sendable {
     public var instructions: String?
+    public var tools: [OpenAIResponseTool]?
+    public var toolChoice: OpenAIResponseToolChoice?
 
-    public init(instructions: String? = nil) {
+    public init(
+        instructions: String? = nil,
+        tools: [ToolDescriptor] = [],
+        toolChoice: OpenAIResponseToolChoice? = nil
+    ) {
         self.instructions = instructions
+        self.tools = tools.isEmpty ? nil : tools.map(OpenAIResponseTool.init(descriptor:))
+        self.toolChoice = toolChoice
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case instructions
+        case tools
+        case toolChoice = "tool_choice"
     }
 }
 
@@ -161,11 +175,31 @@ public struct OpenAIRealtimeConversationItemCreateEvent: Codable, Equatable, Sen
     }
 }
 
+public struct OpenAIRealtimeResponseConfiguration: Codable, Equatable, Sendable {
+    public var tools: [OpenAIResponseTool]?
+    public var toolChoice: OpenAIResponseToolChoice?
+
+    public init(
+        tools: [ToolDescriptor] = [],
+        toolChoice: OpenAIResponseToolChoice? = nil
+    ) {
+        self.tools = tools.isEmpty ? nil : tools.map(OpenAIResponseTool.init(descriptor:))
+        self.toolChoice = toolChoice
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case tools
+        case toolChoice = "tool_choice"
+    }
+}
+
 public struct OpenAIRealtimeResponseCreateEvent: Codable, Equatable, Sendable {
     public var type: String
+    public var response: OpenAIRealtimeResponseConfiguration?
 
-    public init() {
+    public init(response: OpenAIRealtimeResponseConfiguration? = nil) {
         self.type = "response.create"
+        self.response = response
     }
 }
 
