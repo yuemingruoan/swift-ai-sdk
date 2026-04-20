@@ -79,7 +79,9 @@ public struct OpenAIResponsesRequestBuilder: Sendable {
                 model: request.model,
                 input: request.input,
                 previousResponseID: request.previousResponseID,
-                stream: true
+                stream: true,
+                tools: request.tools,
+                toolChoice: request.toolChoice
             )
         )
     }

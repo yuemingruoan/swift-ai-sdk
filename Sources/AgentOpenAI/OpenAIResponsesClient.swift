@@ -143,6 +143,44 @@ public struct OpenAIResponsesClient: Sendable {
     }
 
     public func projectedResponseEvents(
+        _ request: OpenAIResponseRequest,
+        using executor: ToolExecutor,
+        stream: Bool = false,
+        maxIterations: Int = 8
+    ) -> AsyncThrowingStream<AgentStreamEvent, Error> {
+        if stream, let streamingTransport {
+            return streamResolvedResponse(
+                request,
+                transport: streamingTransport,
+                using: executor,
+                maxIterations: maxIterations
+            )
+        }
+
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let projection = try await resolveToolCalls(
+                        request,
+                        using: executor,
+                        maxIterations: maxIterations
+                    )
+                    for event in projection.agentStreamEvents() {
+                        continuation.yield(event)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
+
+    public func projectedResponseEvents(
         model: String,
         messages: [AgentMessage],
         previousResponseID: String? = nil,
@@ -155,6 +193,28 @@ public struct OpenAIResponsesClient: Sendable {
                 previousResponseID: previousResponseID
             ),
             stream: stream
+        )
+    }
+
+    public func projectedResponseEvents(
+        model: String,
+        messages: [AgentMessage],
+        tools: [ToolDescriptor],
+        using executor: ToolExecutor,
+        previousResponseID: String? = nil,
+        stream: Bool = false,
+        maxIterations: Int = 8
+    ) throws -> AsyncThrowingStream<AgentStreamEvent, Error> {
+        projectedResponseEvents(
+            try OpenAIResponseRequest(
+                model: model,
+                messages: messages,
+                previousResponseID: previousResponseID,
+                tools: tools
+            ),
+            using: executor,
+            stream: stream,
+            maxIterations: maxIterations
         )
     }
 }
@@ -205,6 +265,90 @@ public struct OpenAIResponsesStreamingClient: Sendable {
 }
 
 private extension OpenAIResponsesClient {
+    func streamResolvedResponse(
+        _ request: OpenAIResponseRequest,
+        transport: any OpenAIResponsesStreamingTransport,
+        using executor: ToolExecutor,
+        maxIterations: Int
+    ) -> AsyncThrowingStream<AgentStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    var remainingIterations = maxIterations
+                    var currentRequest = request
+
+                    while true {
+                        guard remainingIterations > 0 else {
+                            throw OpenAIResponsesClientError.toolCallLimitExceeded(maxIterations)
+                        }
+
+                        var nextRequest: OpenAIResponseRequest?
+                        var didComplete = false
+
+                        for try await event in transport.streamResponse(currentRequest) {
+                            switch event {
+                            case .responseCreated:
+                                continue
+
+                            case .outputTextDelta(let delta):
+                                continuation.yield(.textDelta(delta.delta))
+
+                            case .responseFailed(let response):
+                                throw OpenAITransportError.streamingResponseFailed(response.status)
+
+                            case .responseIncomplete(let response):
+                                throw OpenAITransportError.streamingResponseFailed(response.status)
+
+                            case .error(let error):
+                                throw OpenAITransportError.streamingServerError(
+                                    type: error.type,
+                                    code: error.code,
+                                    message: error.message
+                                )
+
+                            case .responseCompleted(let response):
+                                let projection = try response.projectedOutput()
+                                for projectedEvent in projection.agentStreamEvents() {
+                                    continuation.yield(projectedEvent)
+                                }
+
+                                if projection.toolCalls.isEmpty {
+                                    didComplete = true
+                                } else {
+                                    nextRequest = try await followUpRequest(
+                                        from: currentRequest,
+                                        response: response,
+                                        toolCalls: projection.toolCalls,
+                                        using: executor
+                                    )
+                                }
+                            }
+                        }
+
+                        if didComplete {
+                            continuation.finish()
+                            return
+                        }
+
+                        guard let nextRequest else {
+                            continuation.finish()
+                            return
+                        }
+
+                        currentRequest = nextRequest
+                        remainingIterations -= 1
+                    }
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
+
     func makeFunctionCallOutputs(
         for toolCalls: [OpenAIResponseToolCall],
         using executor: ToolExecutor
@@ -225,6 +369,23 @@ private extension OpenAIResponsesClient {
         }
 
         return items
+    }
+
+    func followUpRequest(
+        from request: OpenAIResponseRequest,
+        response: OpenAIResponse,
+        toolCalls: [OpenAIResponseToolCall],
+        using executor: ToolExecutor
+    ) async throws -> OpenAIResponseRequest {
+        let followUpItems = try await makeFunctionCallOutputs(for: toolCalls, using: executor)
+        return OpenAIResponseRequest(
+            model: request.model,
+            input: followUpItems,
+            previousResponseID: response.id,
+            stream: request.stream,
+            tools: request.tools,
+            toolChoice: nil
+        )
     }
 
     func functionCallOutputValue(from result: ToolResult) throws -> OpenAIFunctionCallOutputValue {

@@ -477,6 +477,117 @@ struct OpenAIResponsesClientTests {
         #expect(followUpInput[0]["call_id"] as? String == "call_123")
         #expect(followUpInput[0]["output"] as? String == #"{"forecast":"sunny"}"#)
     }
+
+    @Test func client_can_stream_and_resolve_tool_calls_with_executor() async throws {
+        let tool = ToolDescriptor.remote(
+            name: "lookup_weather",
+            transport: "weather-api",
+            inputSchema: .object(
+                properties: ["city": .string],
+                required: ["city"]
+            )
+        )
+        let streamingTransport = SequencedResponsesStreamingTransport(
+            eventSequences: [
+                [
+                    .responseCreated(.init(id: "resp_1", status: .inProgress, output: [])),
+                    .outputTextDelta(
+                        .init(itemID: "msg_1", outputIndex: 0, contentIndex: 0, delta: "Checking", sequenceNumber: 1)
+                    ),
+                    .responseCompleted(
+                        .init(
+                            id: "resp_1",
+                            status: .completed,
+                            output: [
+                                .functionCall(
+                                    .init(
+                                        callID: "call_123",
+                                        name: "lookup_weather",
+                                        arguments: "{\"city\":\"Paris\"}",
+                                        status: .completed
+                                    )
+                                ),
+                            ]
+                        )
+                    ),
+                ],
+                [
+                    .responseCreated(.init(id: "resp_2", status: .inProgress, output: [])),
+                    .outputTextDelta(
+                        .init(itemID: "msg_2", outputIndex: 0, contentIndex: 0, delta: "Paris is sunny.", sequenceNumber: 2)
+                    ),
+                    .responseCompleted(
+                        .init(
+                            id: "resp_2",
+                            status: .completed,
+                            output: [
+                                .message(
+                                    .init(
+                                        id: "msg_2",
+                                        role: .assistant,
+                                        content: [.outputText("Paris is sunny.")]
+                                    )
+                                ),
+                            ]
+                        )
+                    ),
+                ],
+            ]
+        )
+        let registry = ToolRegistry()
+        try await registry.register(tool)
+        let executor = ToolExecutor(registry: registry)
+        await executor.register(RecordingWeatherRemoteTransport())
+
+        let client = OpenAIResponsesClient(
+            transport: StubResponsesTransport(),
+            streamingTransport: streamingTransport
+        )
+
+        var events: [AgentStreamEvent] = []
+        for try await event in client.projectedResponseEvents(
+            try OpenAIResponseRequest(
+                model: "gpt-5.4",
+                messages: [.userText("what is the weather in Paris?")],
+                tools: [tool],
+                toolChoice: .required
+            ),
+            using: executor,
+            stream: true
+        ) {
+            events.append(event)
+        }
+
+        #expect(events == [
+            .textDelta("Checking"),
+            .toolCall(
+                .init(
+                    callID: "call_123",
+                    invocation: ToolInvocation(
+                        toolName: "lookup_weather",
+                        arguments: ["city": .string("Paris")]
+                    )
+                )
+            ),
+            .textDelta("Paris is sunny."),
+            .messagesCompleted([
+                AgentMessage(role: .assistant, parts: [.text("Paris is sunny.")]),
+            ]),
+        ])
+
+        let requests = streamingTransport.recordedRequests
+        #expect(requests.count == 2)
+        #expect(requests[0].tools?.map(\.name) == ["lookup_weather"])
+        #expect(requests[0].toolChoice == .required)
+        #expect(requests[1].previousResponseID == "resp_1")
+        #expect(requests[1].tools?.map(\.name) == ["lookup_weather"])
+        #expect(requests[1].toolChoice == nil)
+
+        let followUpPayload = try jsonObject(for: requests[1])
+        let followUpInput = try #require(followUpPayload["input"] as? [[String: Any]])
+        #expect(followUpInput[0]["type"] as? String == "function_call_output")
+        #expect(followUpInput[0]["output"] as? String == #"{"forecast":"sunny"}"#)
+    }
 }
 
 private struct StubResponsesStreamingTransport: OpenAIResponsesStreamingTransport {
@@ -530,6 +641,36 @@ private actor SequencedResponsesTransport: OpenAIResponsesTransport {
         let response = responses[index]
         index += 1
         return response
+    }
+}
+
+private final class SequencedResponsesStreamingTransport: @unchecked Sendable, OpenAIResponsesStreamingTransport {
+    private let eventSequences: [[OpenAIResponseStreamEvent]]
+    private let lock = NSLock()
+    private var index = 0
+    private var requests: [OpenAIResponseRequest] = []
+
+    init(eventSequences: [[OpenAIResponseStreamEvent]]) {
+        self.eventSequences = eventSequences
+    }
+
+    var recordedRequests: [OpenAIResponseRequest] {
+        lock.withLock { requests }
+    }
+
+    func streamResponse(_ request: OpenAIResponseRequest) -> AsyncThrowingStream<OpenAIResponseStreamEvent, Error> {
+        let events = lock.withLock { () -> [OpenAIResponseStreamEvent] in
+            let currentIndex = index
+            index += 1
+            requests.append(request)
+            return eventSequences[currentIndex]
+        }
+        return AsyncThrowingStream { continuation in
+            for event in events {
+                continuation.yield(event)
+            }
+            continuation.finish()
+        }
     }
 }
 

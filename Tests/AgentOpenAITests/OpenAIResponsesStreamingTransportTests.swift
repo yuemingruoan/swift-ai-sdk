@@ -1,3 +1,4 @@
+import AgentCore
 import AgentOpenAI
 import Foundation
 import Testing
@@ -10,13 +11,27 @@ struct OpenAIResponsesStreamingTransportTests {
         let request = try builder.makeStreamingURLRequest(
             for: OpenAIResponseRequest(
                 model: "gpt-5.4",
-                input: [.message(.init(role: .user, content: [.inputText("hello")]))]
+                input: [.message(.init(role: .user, content: [.inputText("hello")]))],
+                tools: [
+                    OpenAIResponseTool(
+                        name: "lookup_weather",
+                        parameters: .object(
+                            properties: ["city": .string],
+                            required: ["city"]
+                        )
+                    ),
+                ],
+                toolChoice: .required
             )
         )
 
         let body = try #require(request.httpBody)
         let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
         #expect(json["stream"] as? Bool == true)
+        #expect(json["tool_choice"] as? String == "required")
+        let tools = try #require(json["tools"] as? [[String: Any]])
+        #expect(tools.count == 1)
+        #expect(tools[0]["name"] as? String == "lookup_weather")
     }
 
     @Test func streaming_transport_decodes_sse_events() async throws {
