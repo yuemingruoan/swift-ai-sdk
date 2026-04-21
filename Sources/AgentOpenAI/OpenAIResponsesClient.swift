@@ -1,24 +1,33 @@
 import AgentCore
 import Foundation
 
+/// Minimal transport contract for non-streaming OpenAI Responses requests.
 public protocol OpenAIResponsesTransport: Sendable {
     func createResponse(_ request: OpenAIResponseRequest) async throws -> OpenAIResponse
 }
 
+/// Errors surfaced by ``OpenAIResponsesClient`` orchestration helpers.
 public enum OpenAIResponsesClientError: Error, Equatable, Sendable {
     case toolCallLimitExceeded(Int)
 }
 
+/// Follow-up strategy used after a model response emits tool calls.
 public enum OpenAIResponsesFollowUpStrategy: Equatable, Sendable {
     case previousResponseID
     case replayInput
 }
 
+/// High-level facade for OpenAI Responses APIs and tool-loop orchestration.
 public struct OpenAIResponsesClient: Sendable {
     private let transport: any OpenAIResponsesTransport
     private let streamingTransport: (any OpenAIResponsesStreamingTransport)?
     private let followUpStrategy: OpenAIResponsesFollowUpStrategy
 
+    /// Creates a high-level Responses client.
+    /// - Parameters:
+    ///   - transport: Non-streaming transport used for standard JSON Responses calls.
+    ///   - streamingTransport: Optional SSE transport used when streaming is requested.
+    ///   - followUpStrategy: Strategy used to construct follow-up requests after tool calls.
     public init(
         transport: any OpenAIResponsesTransport,
         streamingTransport: (any OpenAIResponsesStreamingTransport)? = nil,
@@ -29,6 +38,13 @@ public struct OpenAIResponsesClient: Sendable {
         self.followUpStrategy = followUpStrategy
     }
 
+    /// Creates a raw OpenAI response from provider-neutral messages.
+    /// - Parameters:
+    ///   - model: Model identifier sent to the Responses API.
+    ///   - messages: Provider-neutral input messages for the request.
+    ///   - previousResponseID: Optional previous response identifier used for follow-up requests.
+    /// - Returns: The decoded raw Responses payload.
+    /// - Throws: An error if request construction or transport execution fails.
     public func createResponse(
         model: String,
         messages: [AgentMessage],
@@ -43,10 +59,21 @@ public struct OpenAIResponsesClient: Sendable {
         )
     }
 
+    /// Creates a raw OpenAI response from a fully prepared request model.
+    /// - Parameter request: Prebuilt low-level request payload.
+    /// - Returns: The decoded raw Responses payload.
+    /// - Throws: An error returned by the underlying transport.
     public func createResponse(_ request: OpenAIResponseRequest) async throws -> OpenAIResponse {
         try await transport.createResponse(request)
     }
 
+    /// Returns the provider-neutral projection for a message-based request.
+    /// - Parameters:
+    ///   - model: Model identifier sent to the Responses API.
+    ///   - messages: Provider-neutral input messages for the request.
+    ///   - previousResponseID: Optional previous response identifier used for follow-up requests.
+    /// - Returns: Provider-neutral messages and tool calls projected from the raw response.
+    /// - Throws: An error if request construction, transport execution, or projection fails.
     public func createProjectedResponse(
         model: String,
         messages: [AgentMessage],
@@ -60,6 +87,10 @@ public struct OpenAIResponsesClient: Sendable {
         return try response.projectedOutput()
     }
 
+    /// Returns the provider-neutral projection for a prebuilt request.
+    /// - Parameter request: Prebuilt low-level request payload.
+    /// - Returns: Provider-neutral messages and tool calls projected from the raw response.
+    /// - Throws: An error if transport execution or projection fails.
     public func createProjectedResponse(
         _ request: OpenAIResponseRequest
     ) async throws -> OpenAIResponseProjection {
@@ -67,6 +98,13 @@ public struct OpenAIResponsesClient: Sendable {
         return try response.projectedOutput()
     }
 
+    /// Repeatedly resolves tool calls until the model returns a completed response without new tool work.
+    /// - Parameters:
+    ///   - request: Initial low-level request to send.
+    ///   - executor: Tool executor used to satisfy model-issued tool calls.
+    ///   - maxIterations: Maximum number of model/tool follow-up loops allowed.
+    /// - Returns: The final provider-neutral projection after tool execution is complete.
+    /// - Throws: An error if the tool-call loop exceeds the iteration budget, transport execution fails, or projection fails.
     public func resolveToolCalls(
         _ request: OpenAIResponseRequest,
         using executor: ToolExecutor,
@@ -116,6 +154,11 @@ public struct OpenAIResponsesClient: Sendable {
         )
     }
 
+    /// Streams provider-neutral events for a request, with optional SSE streaming.
+    /// - Parameters:
+    ///   - request: Prebuilt low-level request to send.
+    ///   - stream: Whether to prefer the configured streaming transport over one-shot execution.
+    /// - Returns: A provider-neutral event stream for the request lifecycle.
     public func projectedResponseEvents(
         _ request: OpenAIResponseRequest,
         stream: Bool = false
@@ -144,6 +187,13 @@ public struct OpenAIResponsesClient: Sendable {
         }
     }
 
+    /// Streams provider-neutral events while resolving tool calls automatically.
+    /// - Parameters:
+    ///   - request: Prebuilt low-level request to send.
+    ///   - executor: Tool executor used to satisfy model-issued tool calls.
+    ///   - stream: Whether to prefer the configured streaming transport over one-shot execution.
+    ///   - maxIterations: Maximum number of model/tool follow-up loops allowed.
+    /// - Returns: A provider-neutral event stream that includes tool-call resolution output.
     public func projectedResponseEvents(
         _ request: OpenAIResponseRequest,
         using executor: ToolExecutor,
@@ -182,6 +232,14 @@ public struct OpenAIResponsesClient: Sendable {
         }
     }
 
+    /// Convenience overload that builds an ``OpenAIResponseRequest`` from provider-neutral messages.
+    /// - Parameters:
+    ///   - model: Model identifier sent to the Responses API.
+    ///   - messages: Provider-neutral input messages for the request.
+    ///   - previousResponseID: Optional previous response identifier used for follow-up requests.
+    ///   - stream: Whether to prefer the configured streaming transport over one-shot execution.
+    /// - Returns: A provider-neutral event stream for the request lifecycle.
+    /// - Throws: An error if the request cannot be constructed from the supplied messages.
     public func projectedResponseEvents(
         model: String,
         messages: [AgentMessage],
@@ -198,6 +256,17 @@ public struct OpenAIResponsesClient: Sendable {
         )
     }
 
+    /// Convenience overload that builds a tool-enabled request from provider-neutral messages.
+    /// - Parameters:
+    ///   - model: Model identifier sent to the Responses API.
+    ///   - messages: Provider-neutral input messages for the request.
+    ///   - tools: Tool descriptors to expose to the model.
+    ///   - executor: Tool executor used to satisfy model-issued tool calls.
+    ///   - previousResponseID: Optional previous response identifier used for follow-up requests.
+    ///   - stream: Whether to prefer the configured streaming transport over one-shot execution.
+    ///   - maxIterations: Maximum number of model/tool follow-up loops allowed.
+    /// - Returns: A provider-neutral event stream that includes tool-call resolution output.
+    /// - Throws: An error if the request cannot be constructed from the supplied messages and tools.
     public func projectedResponseEvents(
         model: String,
         messages: [AgentMessage],
@@ -221,13 +290,19 @@ public struct OpenAIResponsesClient: Sendable {
     }
 }
 
+/// Lower-level helper that converts the streaming transport into provider-neutral events.
 public struct OpenAIResponsesStreamingClient: Sendable {
     private let transport: any OpenAIResponsesStreamingTransport
 
+    /// Creates a streaming helper around a lower-level SSE transport.
+    /// - Parameter transport: Transport used to open the Responses SSE stream.
     public init(transport: any OpenAIResponsesStreamingTransport) {
         self.transport = transport
     }
 
+    /// Streams a projected response directly from a streaming transport.
+    /// - Parameter request: Prebuilt low-level request payload.
+    /// - Returns: A provider-neutral event stream projected from SSE events.
     public func streamProjectedResponse(
         _ request: OpenAIResponseRequest
     ) -> AsyncThrowingStream<AgentStreamEvent, Error> {

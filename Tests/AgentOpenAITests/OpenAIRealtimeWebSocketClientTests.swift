@@ -4,6 +4,19 @@ import Foundation
 import Testing
 
 struct OpenAIRealtimeWebSocketClientTests {
+    @Test func requestBuilder_sets_custom_user_agent_header() throws {
+        let builder = OpenAIRealtimeRequestBuilder(
+            configuration: .init(
+                apiKey: "sk-test",
+                model: "gpt-realtime",
+                userAgent: "swift-ai-sdk-tests/1.0"
+            )
+        )
+        let request = try builder.makeURLRequest()
+
+        #expect(request.value(forHTTPHeaderField: "User-Agent") == "swift-ai-sdk-tests/1.0")
+    }
+
     @Test func requestBuilder_sets_realtime_endpoint_and_auth_header() throws {
         let builder = OpenAIRealtimeRequestBuilder(
             configuration: .init(apiKey: "sk-test", model: "gpt-realtime")

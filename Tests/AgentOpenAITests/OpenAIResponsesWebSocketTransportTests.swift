@@ -3,6 +3,20 @@ import Foundation
 import Testing
 
 struct OpenAIResponsesWebSocketTransportTests {
+    @Test func request_builder_supports_custom_user_agent() throws {
+        let builder = OpenAIResponsesWebSocketRequestBuilder(
+            configuration: .init(
+                apiKey: "sk-test",
+                baseURL: URL(string: "https://api.openai.com/v1")!,
+                userAgent: "swift-ai-sdk-tests/1.0"
+            )
+        )
+
+        let request = try builder.makeURLRequest()
+
+        #expect(request.value(forHTTPHeaderField: "User-Agent") == "swift-ai-sdk-tests/1.0")
+    }
+
     @Test func request_builder_targets_responses_websocket_and_sets_headers() throws {
         let builder = OpenAIResponsesWebSocketRequestBuilder(
             configuration: .init(

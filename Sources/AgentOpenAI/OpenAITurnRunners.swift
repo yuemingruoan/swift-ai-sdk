@@ -1,6 +1,7 @@
 import AgentCore
 import Foundation
 
+/// Configuration for the high-level OpenAI Responses turn runner.
 public struct OpenAIResponsesTurnRunnerConfiguration: Equatable, Sendable {
     public var model: String
     public var previousResponseID: String?
@@ -8,6 +9,13 @@ public struct OpenAIResponsesTurnRunnerConfiguration: Equatable, Sendable {
     public var toolChoice: OpenAIResponseToolChoice?
     public var stream: Bool
 
+    /// Creates configuration for a one-turn OpenAI Responses runner.
+    /// - Parameters:
+    ///   - model: Model identifier sent to the Responses API.
+    ///   - previousResponseID: Optional previous response identifier used for follow-up requests.
+    ///   - tools: Tool descriptors exposed to the model.
+    ///   - toolChoice: Optional tool-choice override sent to the Responses API.
+    ///   - stream: Whether the runner should prefer streaming execution.
     public init(
         model: String,
         previousResponseID: String? = nil,
@@ -23,11 +31,17 @@ public struct OpenAIResponsesTurnRunnerConfiguration: Equatable, Sendable {
     }
 }
 
+/// High-level one-turn runner built on ``OpenAIResponsesClient``.
 public struct OpenAIResponsesTurnRunner: AgentTurnRunner, Sendable {
     public let client: OpenAIResponsesClient
     public let configuration: OpenAIResponsesTurnRunnerConfiguration
     public let executor: ToolExecutor?
 
+    /// Creates a one-turn Responses runner.
+    /// - Parameters:
+    ///   - client: High-level Responses client used for request execution.
+    ///   - configuration: Runner configuration describing model and tool behavior.
+    ///   - executor: Optional tool executor used when the model emits tool calls.
     public init(
         client: OpenAIResponsesClient,
         configuration: OpenAIResponsesTurnRunnerConfiguration,
@@ -38,6 +52,10 @@ public struct OpenAIResponsesTurnRunner: AgentTurnRunner, Sendable {
         self.executor = executor
     }
 
+    /// Runs one Responses turn and yields provider-neutral events.
+    /// - Parameter input: Provider-neutral input messages for the turn.
+    /// - Returns: A stream of provider-neutral events emitted for the turn.
+    /// - Throws: An error if the request cannot be constructed from the supplied messages.
     public func runTurn(input: [AgentMessage]) throws -> AsyncThrowingStream<AgentStreamEvent, Error> {
         let request = try OpenAIResponseRequest(
             model: configuration.model,
@@ -63,11 +81,17 @@ public struct OpenAIResponsesTurnRunner: AgentTurnRunner, Sendable {
     }
 }
 
+/// Configuration for the high-level OpenAI Realtime turn runner.
 public struct OpenAIRealtimeTurnRunnerConfiguration: Equatable, Sendable {
     public var instructions: String?
     public var tools: [ToolDescriptor]
     public var toolChoice: OpenAIResponseToolChoice?
 
+    /// Creates configuration for a one-turn OpenAI Realtime runner.
+    /// - Parameters:
+    ///   - instructions: Optional session-level instructions sent before the response is created.
+    ///   - tools: Tool descriptors exposed to the Realtime session.
+    ///   - toolChoice: Optional tool-choice override sent during session configuration.
     public init(
         instructions: String? = nil,
         tools: [ToolDescriptor] = [],
@@ -79,17 +103,24 @@ public struct OpenAIRealtimeTurnRunnerConfiguration: Equatable, Sendable {
     }
 }
 
+/// Errors thrown when provider-neutral messages cannot be sent through Realtime.
 public enum OpenAIRealtimeTurnRunnerError: Error, Equatable, Sendable {
     case unsupportedMessageRole(String)
     case unsupportedMessagePart(String)
 }
 
+/// High-level turn runner for OpenAI Realtime sessions.
 public actor OpenAIRealtimeTurnRunner: AgentTurnRunner {
     public let client: OpenAIRealtimeWebSocketClient
     public let configuration: OpenAIRealtimeTurnRunnerConfiguration
     public let executor: ToolExecutor?
     private var isConnected = false
 
+    /// Creates a one-turn Realtime runner.
+    /// - Parameters:
+    ///   - client: Realtime WebSocket client used for session communication.
+    ///   - configuration: Runner configuration describing instructions and tool behavior.
+    ///   - executor: Optional tool executor used when the model emits tool calls.
     public init(
         client: OpenAIRealtimeWebSocketClient,
         configuration: OpenAIRealtimeTurnRunnerConfiguration = .init(),
@@ -100,6 +131,10 @@ public actor OpenAIRealtimeTurnRunner: AgentTurnRunner {
         self.executor = executor
     }
 
+    /// Runs one Realtime turn against a connected session.
+    /// - Parameter input: Provider-neutral input messages for the turn.
+    /// - Returns: A stream of provider-neutral events emitted for the turn.
+    /// - Throws: An error if the supplied messages cannot be represented by the Realtime protocol.
     public nonisolated func runTurn(
         input: [AgentMessage]
     ) throws -> AsyncThrowingStream<AgentStreamEvent, Error> {

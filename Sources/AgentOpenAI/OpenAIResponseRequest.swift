@@ -1,6 +1,7 @@
 import AgentCore
 import Foundation
 
+/// Lower-level request model for the OpenAI Responses API.
 public struct OpenAIResponseRequest: Codable, Equatable, Sendable {
     public var model: String
     public var input: [OpenAIResponseInputItem]
@@ -12,6 +13,17 @@ public struct OpenAIResponseRequest: Codable, Equatable, Sendable {
     public var tools: [OpenAIResponseTool]?
     public var toolChoice: OpenAIResponseToolChoice?
 
+    /// Creates a request from already prepared OpenAI input items.
+    /// - Parameters:
+    ///   - model: Model identifier sent to the Responses API.
+    ///   - input: Low-level input items sent to the provider.
+    ///   - instructions: Optional top-level instructions string.
+    ///   - previousResponseID: Optional previous response identifier used for follow-up requests.
+    ///   - store: Optional provider hint controlling server-side response storage.
+    ///   - promptCacheKey: Optional cache key forwarded to compatible providers.
+    ///   - stream: Optional streaming flag sent to the provider.
+    ///   - tools: Optional function tools exposed to the model.
+    ///   - toolChoice: Optional tool-choice override sent to the provider.
     public init(
         model: String,
         input: [OpenAIResponseInputItem],
@@ -34,6 +46,15 @@ public struct OpenAIResponseRequest: Codable, Equatable, Sendable {
         self.toolChoice = toolChoice
     }
 
+    /// Creates a request from provider-neutral messages and tool descriptors.
+    /// - Parameters:
+    ///   - model: Model identifier sent to the Responses API.
+    ///   - messages: Provider-neutral input messages to convert into low-level input items.
+    ///   - previousResponseID: Optional previous response identifier used for follow-up requests.
+    ///   - stream: Optional streaming flag sent to the provider.
+    ///   - tools: Tool descriptors exposed to the model.
+    ///   - toolChoice: Optional tool-choice override sent to the provider.
+    /// - Throws: An error if any provider-neutral message cannot be converted into an OpenAI input item.
     public init(
         model: String,
         messages: [AgentMessage],
@@ -55,6 +76,14 @@ public struct OpenAIResponseRequest: Codable, Equatable, Sendable {
         )
     }
 
+    /// Creates a request by letting the caller build `input` items imperatively.
+    /// - Parameters:
+    ///   - model: Model identifier sent to the Responses API.
+    ///   - previousResponseID: Optional previous response identifier used for follow-up requests.
+    ///   - stream: Optional streaming flag sent to the provider.
+    ///   - tools: Tool descriptors exposed to the model.
+    ///   - toolChoice: Optional tool-choice override sent to the provider.
+    ///   - configureInput: Closure that mutates an input builder before the request is finalized.
     public init(
         model: String,
         previousResponseID: String? = nil,
@@ -91,18 +120,25 @@ public struct OpenAIResponseRequest: Codable, Equatable, Sendable {
     }
 }
 
+/// Tool-choice mode for OpenAI Responses requests.
 public enum OpenAIResponseToolChoice: String, Codable, Equatable, Sendable {
     case none
     case auto
     case required
 }
 
+/// Function tool declaration sent to the OpenAI Responses API.
 public struct OpenAIResponseTool: Codable, Equatable, Sendable {
     public var type: String
     public var name: String
     public var description: String?
     public var parameters: OpenAIResponseToolSchema
 
+    /// Creates a function tool declaration for the OpenAI Responses API.
+    /// - Parameters:
+    ///   - name: Stable tool identifier.
+    ///   - description: Optional natural-language description for model tool selection.
+    ///   - parameters: JSON Schema-like description of the accepted arguments.
     public init(
         name: String,
         description: String? = nil,
@@ -114,6 +150,8 @@ public struct OpenAIResponseTool: Codable, Equatable, Sendable {
         self.parameters = parameters
     }
 
+    /// Converts a provider-neutral ``ToolDescriptor`` into an OpenAI function tool.
+    /// - Parameter descriptor: Provider-neutral tool metadata.
     public init(descriptor: ToolDescriptor) {
         self.init(
             name: descriptor.name,
@@ -124,6 +162,7 @@ public struct OpenAIResponseTool: Codable, Equatable, Sendable {
     }
 }
 
+/// JSON Schema-like tool parameter schema for the OpenAI Responses API.
 public indirect enum OpenAIResponseToolSchema: Equatable, Sendable {
     case string
     case integer
@@ -136,6 +175,8 @@ public indirect enum OpenAIResponseToolSchema: Equatable, Sendable {
         additionalProperties: Bool = false
     )
 
+    /// Creates an OpenAI tool schema from the provider-neutral schema model.
+    /// - Parameter toolInputSchema: Provider-neutral tool schema.
     public init(toolInputSchema: ToolInputSchema) {
         switch toolInputSchema {
         case .string:
@@ -220,31 +261,45 @@ extension OpenAIResponseToolSchema: Codable {
     }
 }
 
+/// Builder for the `input` array in ``OpenAIResponseRequest``.
 public struct OpenAIResponseInputBuilder: Equatable, Sendable {
     private var items: [OpenAIResponseInputItem] = []
 
+    /// Creates an empty builder.
     public init() {}
 
+    /// Appends a raw OpenAI input item.
+    /// - Parameter item: Low-level input item to append.
     public mutating func append(_ item: OpenAIResponseInputItem) {
         items.append(item)
     }
 
+    /// Appends a system-text message item.
+    /// - Parameter text: Text content to append as a system message.
     public mutating func appendSystemText(_ text: String) {
         append(.message(.systemText(text)))
     }
 
+    /// Appends a developer-text message item.
+    /// - Parameter text: Text content to append as a developer message.
     public mutating func appendDeveloperText(_ text: String) {
         append(.message(.developerText(text)))
     }
 
+    /// Appends a user-text message item.
+    /// - Parameter text: Text content to append as a user message.
     public mutating func appendUserText(_ text: String) {
         append(.message(.userText(text)))
     }
 
+    /// Appends an assistant-text message item.
+    /// - Parameter text: Text content to append as an assistant message.
     public mutating func appendAssistantText(_ text: String) {
         append(.message(.assistantText(text)))
     }
 
+    /// Appends an image to the current user message or creates a new user message if needed.
+    /// - Parameter url: URL for the image to append.
     public mutating func appendUserImage(_ url: URL) {
         guard case .message(let message)? = items.last, message.role == .user else {
             append(.message(.init(role: .user, content: [.inputImage(url)])))
@@ -255,6 +310,10 @@ public struct OpenAIResponseInputBuilder: Equatable, Sendable {
         items.append(.message(.init(role: .user, content: message.content + [.inputImage(url)])))
     }
 
+    /// Appends a function call output item.
+    /// - Parameters:
+    ///   - callID: Provider function-call identifier being satisfied.
+    ///   - output: Encoded function output payload.
     public mutating func appendFunctionCallOutput(
         callID: String,
         output: OpenAIFunctionCallOutputValue
@@ -262,6 +321,8 @@ public struct OpenAIResponseInputBuilder: Equatable, Sendable {
         append(.functionCallOutput(.init(callID: callID, output: output)))
     }
 
+    /// Finalizes the builder into the `input` array for a request.
+    /// - Returns: The ordered list of input items accumulated by the builder.
     public func build() -> [OpenAIResponseInputItem] {
         items
     }
