@@ -92,6 +92,34 @@ Tests/
 - watchOS 10+
 - visionOS 1+
 
+## 安装方式
+
+首个公开 SwiftPM 版本计划打 `0.1.0` 标签。在这个标签真正发布前，
+如果你只是跟进当前基线，可以先依赖分支或 revision；正式发布后再切到
+语义化版本约束。
+
+`0.1.0` 发布后，依赖方式可以写成：
+
+```swift
+dependencies: [
+    .package(
+        url: "https://github.com/yuemingruoan/swift-ai-sdk.git",
+        from: "0.1.0"
+    )
+]
+```
+
+如果你需要先消费未正式发布的当前基线，可以临时使用分支依赖：
+
+```swift
+dependencies: [
+    .package(
+        url: "https://github.com/yuemingruoan/swift-ai-sdk.git",
+        branch: "main"
+    )
+]
+```
+
 ## 核心概念
 
 ### 消息与事件
@@ -444,6 +472,10 @@ swift test
 - `AgentPersistenceTests`
 - `AgentMacrosTests`
 
+`.github/workflows/swift-package.yml` 里的 release 准备工作流会在
+GitHub Actions 上验证同一组根包测试，并额外构建和测试
+`Examples/AppleHostExample`。
+
 ## 设计约束
 
 当前实现遵循这些约束：
@@ -457,3 +489,6 @@ swift test
 ## 下一步
 
 有序实现路线仍然写在 [SDK_IMPROVEMENT_PLAN.md](SDK_IMPROVEMENT_PLAN.md) 里，不过其中的核心里程碑现在都已经在代码中落地。接下来更值得推进的方向，大概率是 examples、docs、更多宿主 adapter，或者更深入的 provider 覆盖，而不是继续补基础脚手架。
+
+首个公开版本的仓库级发版清单见
+[docs/RELEASING.md](docs/RELEASING.md)。

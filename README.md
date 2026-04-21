@@ -92,6 +92,34 @@ Supported platforms:
 - watchOS 10+
 - visionOS 1+
 
+## Installation
+
+The first public SwiftPM release is intended to be tagged as `0.1.0`. Until
+that tag exists, depend on a branch or revision while the release-preparation
+pull request is under review.
+
+After `0.1.0` is published, add the package with a semantic-version requirement:
+
+```swift
+dependencies: [
+    .package(
+        url: "https://github.com/yuemingruoan/swift-ai-sdk.git",
+        from: "0.1.0"
+    )
+]
+```
+
+If you need the unreleased baseline before the first tag lands, use a branch:
+
+```swift
+dependencies: [
+    .package(
+        url: "https://github.com/yuemingruoan/swift-ai-sdk.git",
+        branch: "main"
+    )
+]
+```
+
 ## Core Concepts
 
 ### Messages and Events
@@ -444,6 +472,10 @@ Key test groups:
 - `AgentPersistenceTests`
 - `AgentMacrosTests`
 
+The release-preparation workflow in `.github/workflows/swift-package.yml`
+verifies the same root package tests and also builds/tests
+`Examples/AppleHostExample` on GitHub Actions.
+
 ## Design Constraints
 
 The current implementation follows these constraints:
@@ -457,3 +489,6 @@ The current implementation follows these constraints:
 ## Next Work
 
 The ordered implementation roadmap lives in [SDK_IMPROVEMENT_PLAN.md](SDK_IMPROVEMENT_PLAN.md). The core milestones in that document are now represented in code; the next useful work is likely examples, docs, additional host adapters, or deeper provider coverage rather than more baseline scaffolding.
+
+For the first public tag, the repository-level release checklist lives in
+[docs/RELEASING.md](docs/RELEASING.md).
