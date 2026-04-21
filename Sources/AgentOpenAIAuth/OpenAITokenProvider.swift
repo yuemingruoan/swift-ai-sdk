@@ -6,12 +6,6 @@ public enum OpenAITokenRefreshReason: Equatable, Sendable {
     case expired
 }
 
-/// Legacy token-provider-specific errors retained for source compatibility.
-public enum OpenAITokenProviderError: Error, Equatable, Sendable {
-    case refreshUnsupported
-    case missingTokens
-}
-
 /// Supplies current tokens and optional refresh behavior for authenticated OpenAI-compatible transports.
 public protocol OpenAITokenProvider: Sendable {
     /// Returns the current token set available to the host.

@@ -30,12 +30,6 @@ public struct AnthropicAPIConfiguration: Equatable, Sendable {
     }
 }
 
-/// Errors thrown by the direct Anthropic HTTP transport.
-public enum AnthropicTransportError: Error, Equatable, Sendable {
-    case invalidResponse
-    case unsuccessfulStatusCode(Int)
-}
-
 /// Minimal async HTTP session used by Anthropic transports.
 public protocol AnthropicHTTPSession: Sendable {
     func data(for request: URLRequest) async throws -> (Data, URLResponse)

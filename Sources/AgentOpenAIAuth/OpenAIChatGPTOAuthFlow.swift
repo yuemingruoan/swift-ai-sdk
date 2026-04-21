@@ -2,21 +2,6 @@ import AgentCore
 import AgentOpenAI
 import Foundation
 
-/// Legacy OAuth-flow-specific errors retained for source compatibility with older call sites.
-public enum OpenAIChatGPTOAuthError: Error, Equatable, Sendable {
-    case unsupportedAuthorizationMethod(OpenAIOAuthMethod)
-    case unknownAuthorizationSession
-    case missingRefreshToken
-    case missingBrowserRedirectURL
-    case callbackURLRequired
-    case missingAuthorizationCode
-    case stateMismatch
-    case callbackError(code: String, description: String?)
-    case invalidResponse
-    case unsuccessfulStatusCode(Int)
-    case deviceCodeTimedOut
-}
-
 /// Device-code OAuth flow for ChatGPT/Codex-compatible authentication.
 public final class OpenAIChatGPTDeviceCodeFlow: OpenAIOAuthFlow, @unchecked Sendable {
     private let configuration: OpenAIChatGPTOAuthConfiguration

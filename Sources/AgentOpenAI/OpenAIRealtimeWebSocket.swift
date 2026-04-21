@@ -304,10 +304,6 @@ public struct OpenAIRealtimeConfiguration: Equatable, Sendable {
     }
 }
 
-public enum OpenAIRealtimeError: Error, Equatable, Sendable {
-    case notConnected
-}
-
 public struct OpenAIRealtimeRequestBuilder: Sendable {
     public let configuration: OpenAIRealtimeConfiguration
 

@@ -26,14 +26,6 @@ public struct OpenAIAPIConfiguration: Equatable, Sendable {
     }
 }
 
-/// Errors thrown by the direct OpenAI HTTP and SSE transports.
-public enum OpenAITransportError: Error, Equatable, Sendable {
-    case invalidResponse
-    case unsuccessfulStatusCode(Int)
-    case streamingResponseFailed(OpenAIResponseStatus)
-    case streamingServerError(type: String, code: String?, message: String?)
-}
-
 /// Minimal async HTTP session used by non-streaming OpenAI transports.
 public protocol OpenAIHTTPSession: Sendable {
     func data(for request: URLRequest) async throws -> (Data, URLResponse)

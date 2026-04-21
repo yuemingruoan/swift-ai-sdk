@@ -156,7 +156,7 @@ public final class AppleHostExampleModel {
             let flow = OpenAIChatGPTBrowserFlow(configuration: configuration)
             let session = try await flow.startAuthorization(method: .browser)
             guard let authorizationURL = session.authorizationURL else {
-                throw OpenAIChatGPTOAuthError.invalidResponse
+                throw AgentAuthError.invalidConfiguration("authorization_url")
             }
 
             cancelPendingBrowserLogin()
@@ -177,7 +177,7 @@ public final class AppleHostExampleModel {
         guard let sessionID = pendingBrowserSessionID,
               let flow = pendingBrowserFlow
         else {
-            setError(OpenAIChatGPTOAuthError.unknownAuthorizationSession)
+            setError(AgentAuthError.unknownAuthorizationSession)
             return
         }
 
@@ -334,7 +334,7 @@ extension AppleHostExampleModel {
         guard let rawAccountID = tokens.chatGPTAccountID,
               let candidate = nonEmpty(rawAccountID)
         else {
-            throw OpenAIAuthenticatedTransportError.missingChatGPTAccountID
+            throw AgentAuthError.missingCredentials("chatgpt_account_id")
         }
         accountID = candidate
         additionalHeaders["chatgpt-account-id"] = candidate

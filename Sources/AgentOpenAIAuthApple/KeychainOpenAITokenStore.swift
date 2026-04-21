@@ -3,12 +3,6 @@ import AgentOpenAIAuth
 import Foundation
 import Security
 
-/// Apple Keychain adapter errors that preserve underlying `Security` framework status codes.
-public enum KeychainOpenAITokenStoreError: Error, Equatable, Sendable {
-    case unexpectedStatus(OSStatus)
-    case invalidStoredData
-}
-
 /// Injectable wrapper around the `Security` framework functions used by the Keychain token store.
 public struct KeychainClient: Sendable {
     public var add: @Sendable ([CFString: Any]) async -> OSStatus

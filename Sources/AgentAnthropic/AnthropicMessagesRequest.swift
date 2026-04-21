@@ -1,7 +1,10 @@
 import AgentCore
 import Foundation
 
-/// Errors thrown while converting provider-neutral models into Anthropic request or response shapes.
+/// Anthropic-specific conversion errors raised while mapping between SDK models and provider wire shapes.
+///
+/// These stay separate from the SDK-facing `Agent*Error` runtime taxonomy because they describe
+/// deterministic model-shaping failures rather than transport or execution failures.
 public enum AnthropicConversionError: Error, Equatable, Sendable {
     case unsupportedMessageRole(String)
     case unsupportedMessagePart(String)

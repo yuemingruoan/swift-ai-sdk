@@ -32,11 +32,6 @@ public struct OpenAIAuthenticatedAPIConfiguration: Sendable {
     }
 }
 
-/// Legacy authenticated-transport-specific errors retained for source compatibility.
-public enum OpenAIAuthenticatedTransportError: Error, Equatable, Sendable {
-    case missingChatGPTAccountID
-}
-
 /// Lower-level builder for authenticated OpenAI-compatible Responses requests.
 public struct OpenAIAuthenticatedResponsesRequestBuilder: Sendable {
     public let configuration: OpenAIAuthenticatedAPIConfiguration

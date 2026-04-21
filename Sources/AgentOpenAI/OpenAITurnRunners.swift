@@ -103,12 +103,6 @@ public struct OpenAIRealtimeTurnRunnerConfiguration: Equatable, Sendable {
     }
 }
 
-/// Errors thrown when provider-neutral messages cannot be sent through Realtime.
-public enum OpenAIRealtimeTurnRunnerError: Error, Equatable, Sendable {
-    case unsupportedMessageRole(String)
-    case unsupportedMessagePart(String)
-}
-
 /// High-level turn runner for OpenAI Realtime sessions.
 public actor OpenAIRealtimeTurnRunner: AgentTurnRunner {
     public let client: OpenAIRealtimeWebSocketClient
