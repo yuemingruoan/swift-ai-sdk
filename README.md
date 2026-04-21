@@ -30,6 +30,11 @@ This repository is currently a working infrastructure baseline, not a finished p
 - maintain provider-neutral multi-turn conversation state on top of turn runners
 - observe tool execution through metadata-rich descriptors and executor hooks
 
+Because the repository does not have existing external users yet, the first
+public releases should optimize for cleaning up the API surface instead of
+preserving early compatibility. Expect `0.x` releases to refine names,
+boundaries, and package layout as the SDK is prepared for broader use.
+
 What is intentionally not present yet:
 
 - a built-in SwiftData adapter target
@@ -94,9 +99,10 @@ Supported platforms:
 
 ## Installation
 
-The first public SwiftPM release is intended to be tagged as `0.1.0`. Until
-that tag exists, depend on a branch or revision while the release-preparation
-pull request is under review.
+The first public SwiftPM release is intended to be tagged as `0.1.0`. This
+package does not currently have an installed user base, so `0.x` releases are
+allowed to make breaking API changes while the public surface is still being
+tightened.
 
 After `0.1.0` is published, add the package with a semantic-version requirement:
 
@@ -109,7 +115,8 @@ dependencies: [
 ]
 ```
 
-If you need the unreleased baseline before the first tag lands, use a branch:
+If you need the unreleased baseline before the first tag lands, use a branch.
+Do that only if you are comfortable tracking API changes directly:
 
 ```swift
 dependencies: [
