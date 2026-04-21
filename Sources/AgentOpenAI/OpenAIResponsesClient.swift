@@ -395,13 +395,20 @@ private extension OpenAIResponsesClient {
                                 completedOutputItems[done.outputIndex] = done.item
 
                             case .responseFailed(let response):
-                                throw OpenAITransportError.streamingResponseFailed(response.status)
+                                throw AgentStreamError.responseFailed(
+                                    provider: .openAI,
+                                    status: response.status.rawValue
+                                )
 
                             case .responseIncomplete(let response):
-                                throw OpenAITransportError.streamingResponseFailed(response.status)
+                                throw AgentStreamError.responseFailed(
+                                    provider: .openAI,
+                                    status: response.status.rawValue
+                                )
 
                             case .error(let error):
-                                throw OpenAITransportError.streamingServerError(
+                                throw AgentStreamError.serverError(
+                                    provider: .openAI,
                                     type: error.type,
                                     code: error.code,
                                     message: error.message

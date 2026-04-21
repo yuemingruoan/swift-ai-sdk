@@ -6,6 +6,7 @@ public struct OpenAIAPIConfiguration: Equatable, Sendable {
     public var apiKey: String
     public var baseURL: URL
     public var userAgent: String?
+    public var transport: AgentHTTPTransportConfiguration
 
     /// Creates configuration for direct OpenAI Responses transports.
     /// - Parameters:
@@ -15,10 +16,12 @@ public struct OpenAIAPIConfiguration: Equatable, Sendable {
     public init(
         apiKey: String,
         baseURL: URL = URL(string: "https://api.openai.com/v1")!,
+        transport: AgentHTTPTransportConfiguration = .init(),
         userAgent: String? = nil
     ) {
         self.apiKey = apiKey
         self.baseURL = baseURL
+        self.transport = transport
         self.userAgent = userAgent
     }
 }
@@ -88,8 +91,17 @@ public struct OpenAIResponsesRequestBuilder: Sendable {
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("Bearer \(configuration.apiKey)", forHTTPHeaderField: "Authorization")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let userAgent = configuration.userAgent, !userAgent.isEmpty {
+        if let timeoutInterval = configuration.transport.timeoutInterval {
+            urlRequest.timeoutInterval = timeoutInterval
+        }
+        if let userAgent = configuration.transport.userAgent ?? configuration.userAgent, !userAgent.isEmpty {
             urlRequest.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        }
+        if let requestID = configuration.transport.requestID, !requestID.isEmpty {
+            urlRequest.setValue(requestID, forHTTPHeaderField: "X-Request-Id")
+        }
+        for (header, value) in configuration.transport.additionalHeaders {
+            urlRequest.setValue(value, forHTTPHeaderField: header)
         }
         urlRequest.httpBody = try JSONEncoder().encode(request)
         return urlRequest
@@ -138,16 +150,61 @@ public struct URLSessionOpenAIResponsesTransport: OpenAIResponsesTransport, Send
     /// - Returns: The decoded raw Responses payload.
     /// - Throws: An error if request encoding, network execution, or response decoding fails.
     public func createResponse(_ request: OpenAIResponseRequest) async throws -> OpenAIResponse {
-        let urlRequest = try builder.makeURLRequest(for: request)
-        let (data, response) = try await session.data(for: urlRequest)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw OpenAITransportError.invalidResponse
-        }
-        guard (200..<300).contains(httpResponse.statusCode) else {
-            throw OpenAITransportError.unsuccessfulStatusCode(httpResponse.statusCode)
+        let retryPolicy = builder.configuration.transport.retryPolicy
+
+        for attempt in 1...retryPolicy.maxAttempts {
+            do {
+                let urlRequest = try builder.makeURLRequest(for: request)
+                let (data, response) = try await session.data(for: urlRequest)
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw AgentTransportError.invalidResponse(provider: .openAI)
+                }
+                if retryPolicy.shouldRetry(afterAttempt: attempt, statusCode: httpResponse.statusCode) {
+                    try await sleepForRetryIfNeeded(retryPolicy.backoff)
+                    continue
+                }
+                guard (200..<300).contains(httpResponse.statusCode) else {
+                    throw AgentProviderError.unsuccessfulResponse(
+                        provider: .openAI,
+                        statusCode: httpResponse.statusCode
+                    )
+                }
+
+                do {
+                    return try JSONDecoder().decode(OpenAIResponse.self, from: data)
+                } catch {
+                    throw AgentDecodingError.responseBody(
+                        provider: .openAI,
+                        description: String(describing: error)
+                    )
+                }
+            } catch let error as AgentProviderError {
+                throw error
+            } catch let error as AgentTransportError {
+                if retryPolicy.shouldRetry(afterAttempt: attempt) {
+                    try await sleepForRetryIfNeeded(retryPolicy.backoff)
+                    continue
+                }
+                throw error
+            } catch let error as AgentDecodingError {
+                throw error
+            } catch {
+                let mappedError = AgentTransportError.requestFailed(
+                    provider: .openAI,
+                    description: String(describing: error)
+                )
+                if retryPolicy.shouldRetry(afterAttempt: attempt) {
+                    try await sleepForRetryIfNeeded(retryPolicy.backoff)
+                    continue
+                }
+                throw mappedError
+            }
         }
 
-        return try JSONDecoder().decode(OpenAIResponse.self, from: data)
+        throw AgentTransportError.requestFailed(
+            provider: .openAI,
+            description: "request exhausted retry policy"
+        )
     }
 }
 
@@ -246,11 +303,12 @@ public extension OpenAIResponseStreamEvent {
         case .outputItemDone:
             return []
         case .responseFailed(let response):
-            throw OpenAITransportError.streamingResponseFailed(response.status)
+            throw AgentStreamError.responseFailed(provider: .openAI, status: response.status.rawValue)
         case .responseIncomplete(let response):
-            throw OpenAITransportError.streamingResponseFailed(response.status)
+            throw AgentStreamError.responseFailed(provider: .openAI, status: response.status.rawValue)
         case .error(let error):
-            throw OpenAITransportError.streamingServerError(
+            throw AgentStreamError.serverError(
+                provider: .openAI,
                 type: error.type,
                 code: error.code,
                 message: error.message
@@ -306,10 +364,13 @@ public struct URLSessionOpenAIResponsesStreamingTransport: OpenAIResponsesStream
                     let urlRequest = try builder.makeStreamingURLRequest(for: request)
                     let (lines, response) = try await session.streamLines(for: urlRequest)
                     guard let httpResponse = response as? HTTPURLResponse else {
-                        throw OpenAITransportError.invalidResponse
+                        throw AgentTransportError.invalidResponse(provider: .openAI)
                     }
                     guard (200..<300).contains(httpResponse.statusCode) else {
-                        throw OpenAITransportError.unsuccessfulStatusCode(httpResponse.statusCode)
+                        throw AgentProviderError.unsuccessfulResponse(
+                            provider: .openAI,
+                            statusCode: httpResponse.statusCode
+                        )
                     }
 
                     var dataLines: [String] = []
@@ -317,7 +378,10 @@ public struct URLSessionOpenAIResponsesStreamingTransport: OpenAIResponsesStream
                         let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
 
                         if trimmedLine.isEmpty {
-                            if let event = try decodeSSEEvent(from: dataLines) {
+                            if let event = try decodeSSEEvent(
+                                from: dataLines,
+                                provider: .openAI
+                            ) {
                                 continuation.yield(event)
                             }
                             dataLines.removeAll(keepingCapacity: true)
@@ -325,7 +389,10 @@ public struct URLSessionOpenAIResponsesStreamingTransport: OpenAIResponsesStream
                         }
 
                         if trimmedLine.hasPrefix("event:") {
-                            if let event = try decodeSSEEvent(from: dataLines) {
+                            if let event = try decodeSSEEvent(
+                                from: dataLines,
+                                provider: .openAI
+                            ) {
                                 continuation.yield(event)
                             }
                             dataLines.removeAll(keepingCapacity: true)
@@ -340,7 +407,7 @@ public struct URLSessionOpenAIResponsesStreamingTransport: OpenAIResponsesStream
                         }
                     }
 
-                    if let event = try decodeSSEEvent(from: dataLines) {
+                    if let event = try decodeSSEEvent(from: dataLines, provider: .openAI) {
                         continuation.yield(event)
                     }
                     continuation.finish()
@@ -361,7 +428,10 @@ private struct OpenAIStreamEventEnvelope: Decodable {
     let response: OpenAIResponse?
 }
 
-private func decodeSSEEvent(from dataLines: [String]) throws -> OpenAIResponseStreamEvent? {
+private func decodeSSEEvent(
+    from dataLines: [String],
+    provider: AgentProviderID
+) throws -> OpenAIResponseStreamEvent? {
     guard !dataLines.isEmpty else {
         return nil
     }
@@ -372,7 +442,12 @@ private func decodeSSEEvent(from dataLines: [String]) throws -> OpenAIResponseSt
     }
 
     let jsonData = Data(data.utf8)
-    let envelope = try JSONDecoder().decode(OpenAIStreamEventEnvelope.self, from: jsonData)
+    let envelope: OpenAIStreamEventEnvelope
+    do {
+        envelope = try JSONDecoder().decode(OpenAIStreamEventEnvelope.self, from: jsonData)
+    } catch {
+        throw AgentStreamError.eventDecodingFailed(provider: provider)
+    }
 
     switch envelope.type {
     case "response.created":
@@ -404,4 +479,11 @@ private func decodeSSEEvent(from dataLines: [String]) throws -> OpenAIResponseSt
     default:
         return nil
     }
+}
+
+private func sleepForRetryIfNeeded(_ strategy: AgentHTTPBackoffStrategy) async throws {
+    guard let delay = strategy.delayDuration() else {
+        return
+    }
+    try await Task.sleep(for: delay)
 }

@@ -164,7 +164,10 @@ let package = Package(
                 "AgentAnthropic",
                 "AgentCore",
             ],
-            path: "Tests/AgentAnthropicTests"
+            path: "Tests/AgentAnthropicTests",
+            resources: [
+                .copy("Fixtures"),
+            ]
         ),
         .testTarget(
             name: "AgentOpenAIAuthTests",
@@ -189,7 +192,10 @@ let package = Package(
                 "AgentOpenAI",
                 "AgentCore",
             ],
-            path: "Tests/AgentOpenAITests"
+            path: "Tests/AgentOpenAITests",
+            resources: [
+                .copy("Fixtures"),
+            ]
         ),
         .testTarget(
             name: "AgentMacrosTests",

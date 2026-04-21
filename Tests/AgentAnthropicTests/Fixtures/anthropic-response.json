@@ -1,0 +1,29 @@
+{
+  "id": "msg_123",
+  "model": "claude-sonnet-4-20250514",
+  "role": "assistant",
+  "content": [
+    {
+      "type": "text",
+      "text": "Checking"
+    },
+    {
+      "type": "tool_use",
+      "id": "toolu_123",
+      "name": "lookup_weather",
+      "input": {
+        "city": {
+          "string": {
+            "_0": "Paris"
+          }
+        }
+      }
+    }
+  ],
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 12,
+    "output_tokens": 8
+  }
+}

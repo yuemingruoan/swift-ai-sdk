@@ -7,6 +7,7 @@ public struct AnthropicAPIConfiguration: Equatable, Sendable {
     public var baseURL: URL
     public var version: String
     public var userAgent: String?
+    public var transport: AgentHTTPTransportConfiguration
 
     /// Creates configuration for direct Anthropic Messages transports.
     /// - Parameters:
@@ -18,11 +19,13 @@ public struct AnthropicAPIConfiguration: Equatable, Sendable {
         apiKey: String,
         baseURL: URL = URL(string: "https://api.anthropic.com/v1")!,
         version: String = "2023-06-01",
+        transport: AgentHTTPTransportConfiguration = .init(),
         userAgent: String? = nil
     ) {
         self.apiKey = apiKey
         self.baseURL = baseURL
         self.version = version
+        self.transport = transport
         self.userAgent = userAgent
     }
 }
@@ -66,8 +69,17 @@ public struct AnthropicMessagesRequestBuilder: Sendable {
         urlRequest.setValue(configuration.apiKey, forHTTPHeaderField: "x-api-key")
         urlRequest.setValue(configuration.version, forHTTPHeaderField: "anthropic-version")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let userAgent = configuration.userAgent, !userAgent.isEmpty {
+        if let timeoutInterval = configuration.transport.timeoutInterval {
+            urlRequest.timeoutInterval = timeoutInterval
+        }
+        if let userAgent = configuration.transport.userAgent ?? configuration.userAgent, !userAgent.isEmpty {
             urlRequest.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        }
+        if let requestID = configuration.transport.requestID, !requestID.isEmpty {
+            urlRequest.setValue(requestID, forHTTPHeaderField: "X-Request-Id")
+        }
+        for (header, value) in configuration.transport.additionalHeaders {
+            urlRequest.setValue(value, forHTTPHeaderField: header)
         }
         urlRequest.httpBody = try JSONEncoder().encode(request)
         return urlRequest
@@ -96,22 +108,74 @@ public struct URLSessionAnthropicMessagesTransport: AnthropicMessagesTransport, 
     /// - Returns: The decoded raw Anthropic response.
     /// - Throws: An error if request encoding, network execution, or response decoding fails.
     public func createMessage(_ request: AnthropicMessagesRequest) async throws -> AnthropicMessageResponse {
-        let urlRequest = try builder.makeURLRequest(for: request)
-        let (data, response) = try await session.data(for: urlRequest)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AnthropicTransportError.invalidResponse
-        }
-        guard (200..<300).contains(httpResponse.statusCode) else {
-            throw AnthropicTransportError.unsuccessfulStatusCode(httpResponse.statusCode)
+        let retryPolicy = builder.configuration.transport.retryPolicy
+
+        for attempt in 1...retryPolicy.maxAttempts {
+            do {
+                let urlRequest = try builder.makeURLRequest(for: request)
+                let (data, response) = try await session.data(for: urlRequest)
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw AgentTransportError.invalidResponse(provider: .anthropic)
+                }
+                if retryPolicy.shouldRetry(afterAttempt: attempt, statusCode: httpResponse.statusCode) {
+                    try await sleepForRetryIfNeeded(retryPolicy.backoff)
+                    continue
+                }
+                guard (200..<300).contains(httpResponse.statusCode) else {
+                    throw AgentProviderError.unsuccessfulResponse(
+                        provider: .anthropic,
+                        statusCode: httpResponse.statusCode
+                    )
+                }
+
+                do {
+                    return try JSONDecoder().decode(AnthropicMessageResponse.self, from: data)
+                } catch {
+                    throw AgentDecodingError.responseBody(
+                        provider: .anthropic,
+                        description: String(describing: error)
+                    )
+                }
+            } catch let error as AgentProviderError {
+                throw error
+            } catch let error as AgentTransportError {
+                if retryPolicy.shouldRetry(afterAttempt: attempt) {
+                    try await sleepForRetryIfNeeded(retryPolicy.backoff)
+                    continue
+                }
+                throw error
+            } catch let error as AgentDecodingError {
+                throw error
+            } catch {
+                let mappedError = AgentTransportError.requestFailed(
+                    provider: .anthropic,
+                    description: String(describing: error)
+                )
+                if retryPolicy.shouldRetry(afterAttempt: attempt) {
+                    try await sleepForRetryIfNeeded(retryPolicy.backoff)
+                    continue
+                }
+                throw mappedError
+            }
         }
 
-        return try JSONDecoder().decode(AnthropicMessageResponse.self, from: data)
+        throw AgentTransportError.requestFailed(
+            provider: .anthropic,
+            description: "request exhausted retry policy"
+        )
     }
 }
 
 /// Errors surfaced by ``AnthropicMessagesClient`` orchestration helpers.
 public enum AnthropicMessagesClientError: Error, Equatable, Sendable {
     case toolCallLimitExceeded(Int)
+}
+
+private func sleepForRetryIfNeeded(_ strategy: AgentHTTPBackoffStrategy) async throws {
+    guard let delay = strategy.delayDuration() else {
+        return
+    }
+    try await Task.sleep(for: delay)
 }
 
 public enum AnthropicStopReason: String, Codable, Equatable, Sendable {

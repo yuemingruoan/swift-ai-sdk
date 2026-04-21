@@ -1,12 +1,20 @@
 # Releasing swift-ai-sdk
 
-This repository is preparing for its first public SwiftPM release. The initial
-tag should be `0.1.0`.
+`v0.1.0` was released on 2026-04-21 as the first public SwiftPM tag. This
+document now defines how follow-up releases should be prepared and published.
+
+## Version Naming Rules
+
+- Git and GitHub Releases use `vX.Y.Z` tags such as `v0.1.1`
+- SwiftPM installation examples keep bare semantic versions such as
+  `from: "0.1.0"`
+- `CHANGELOG.md` headings should match the Git tag format, for example
+  `[v0.1.1]`
 
 ## Release Intent
 
-`0.1.0` is the first public infrastructure release, not a promise that the SDK
-is feature-complete. It should represent:
+Each release in the `0.x` line is a public infrastructure checkpoint, not a
+promise that the SDK is feature-complete. A release should represent:
 
 - a tested provider-neutral core
 - documented OpenAI and Anthropic baseline integrations
@@ -22,13 +30,14 @@ Before creating a tag:
 - `swift test` passes in the root package
 - `swift test` passes in `Examples/AppleHostExample`
 - `CHANGELOG.md` reflects the release scope
-- `README.md` and `README.zh-CN.md` describe installation and current limitations accurately
+- `README.md` and `README.zh-CN.md` describe installation, current limitations, and the `main` development line accurately
+- `ROADMAP.md` reflects the next known milestone after the release being cut
 
 ## Release Steps
 
 1. Merge the reviewed release-preparation pull request into `main`.
 2. Update `CHANGELOG.md` by moving the release notes from `Unreleased` into a
-   dated `0.1.0` section.
+   dated `vX.Y.Z` section.
 3. Verify the merge commit locally:
 
    ```bash
@@ -41,11 +50,11 @@ Before creating a tag:
    ```bash
    git checkout main
    git pull --ff-only origin main
-   git tag 0.1.0
-   git push origin 0.1.0
+   git tag v0.1.1
+   git push origin v0.1.1
    ```
 
-5. Create the GitHub Release for `0.1.0` and use the changelog section as the
+5. Create the GitHub Release for `v0.1.1` and use the changelog section as the
    release notes.
 
 ## Suggested Release Notes Structure
