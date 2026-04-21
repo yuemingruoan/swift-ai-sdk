@@ -266,6 +266,8 @@ cd Examples/AppleHostExample && swift build --target AppleHostExample
 - the README now documents the SDK-facing error taxonomy and the shared HTTP transport configuration surface
 - conversion-layer failures remain intentionally provider-specific via `OpenAIConversionError` and `AnthropicConversionError`
 - a longer reference for these two topics lives in [docs/SDK_ERRORS_AND_TRANSPORT.md](docs/SDK_ERRORS_AND_TRANSPORT.md)
+- a host-facing error handling guide lives in [docs/ERROR_HANDLING_COOKBOOK.md](docs/ERROR_HANDLING_COOKBOOK.md)
+- a transport family comparison lives in [docs/TRANSPORT_FAMILY_MATRIX.md](docs/TRANSPORT_FAMILY_MATRIX.md)
 - release governance and tag conventions live in [docs/RELEASING.md](docs/RELEASING.md)
 - forward-looking version milestones live in [ROADMAP.md](ROADMAP.md)
 

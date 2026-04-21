@@ -263,6 +263,8 @@ cd Examples/AppleHostExample && swift build --target AppleHostExample
 - README 现在明确列出了 SDK-facing 错误分层，以及共享 HTTP transport 配置面
 - conversion-layer 的失败仍刻意保留为 provider-specific 的 `OpenAIConversionError` 和 `AnthropicConversionError`
 - 这两部分的详细说明见 [docs/SDK_ERRORS_AND_TRANSPORT.zh-CN.md](docs/SDK_ERRORS_AND_TRANSPORT.zh-CN.md)
+- 面向宿主的错误处理说明见 [docs/ERROR_HANDLING_COOKBOOK.zh-CN.md](docs/ERROR_HANDLING_COOKBOOK.zh-CN.md)
+- transport family 对比矩阵见 [docs/TRANSPORT_FAMILY_MATRIX.zh-CN.md](docs/TRANSPORT_FAMILY_MATRIX.zh-CN.md)
 - 发版治理和 tag 约定见 [docs/RELEASING.md](docs/RELEASING.md)
 - 后续版本路线图见 [ROADMAP.md](ROADMAP.md)
 
