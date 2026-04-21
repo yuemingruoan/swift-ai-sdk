@@ -9,13 +9,18 @@ and the project follows semantic versioning for the SwiftPM version surface.
 
 ### Changed
 
-- unified tool-loop iteration budget failures under `AgentRuntimeError` instead of provider-specific client error enums
-- clarified in the README that conversion-layer failures remain provider-specific while runtime failures use the SDK-facing taxonomy
-- documented the concrete SDK-facing error layers and the shared HTTP transport configuration surface in the README and docs reference pages
-- extended shared transport configuration coverage into authenticated OpenAI-compatible Responses HTTP/SSE transports and the header-oriented subset of the authenticated WebSocket builder
-- removed the stale `OpenAIRealtimeMessageConversionError` surface and kept realtime message-part failures on the shared `AgentDecodingError` path
-- added a host-facing error handling cookbook and a transport family matrix in both English and Simplified Chinese
-- removed the stale `SDK_IMPROVEMENT_PLAN.md` archive file and added `docs/README.md` as the active documentation index for release preparation
+- placeholder for post-`v0.1.1` development
+
+## [v0.1.1] - 2026-04-22
+
+### Changed
+
+- unified the SDK-facing runtime error taxonomy across auth, keychain, realtime, tool loop, and transport-adjacent orchestration paths
+- removed legacy provider-specific runtime error enums while keeping provider-specific conversion failures scoped to dedicated conversion layers
+- extended shared transport configuration coverage into authenticated OpenAI-compatible Responses HTTP and SSE transports, and reused the header-oriented subset in the authenticated WebSocket builder
+- strengthened contract and transport test coverage for shared transport propagation, retry behavior, and runtime error handling
+- added and expanded release-facing documentation for SDK error taxonomy, shared transport configuration, host-facing error handling, transport-family comparison, and active documentation indexing
+- removed stale planning and archive documentation that was no longer part of the active release-facing source of truth
 
 ## [v0.1.0] - 2026-04-21
 
