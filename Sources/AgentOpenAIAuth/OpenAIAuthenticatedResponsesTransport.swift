@@ -1,6 +1,7 @@
 import AgentOpenAI
 import Foundation
 
+/// Connection settings for ChatGPT/Codex-style authenticated Responses endpoints.
 public struct OpenAIAuthenticatedAPIConfiguration: Sendable {
     public var baseURL: URL
     public var compatibilityProfile: OpenAICompatibilityProfile
@@ -8,6 +9,13 @@ public struct OpenAIAuthenticatedAPIConfiguration: Sendable {
     public var userAgent: String?
     public var acceptLanguage: String?
 
+    /// Creates configuration for authenticated ChatGPT/Codex-style Responses endpoints.
+    /// - Parameters:
+    ///   - baseURL: Base URL for the authenticated Responses endpoint family.
+    ///   - compatibilityProfile: Compatibility profile controlling request shaping and headers.
+    ///   - originator: Optional `originator` header value for compatible backends.
+    ///   - userAgent: Optional `User-Agent` header override.
+    ///   - acceptLanguage: Optional `Accept-Language` header override.
     public init(
         baseURL: URL = URL(string: "https://chatgpt.com/backend-api/codex")!,
         compatibilityProfile: OpenAICompatibilityProfile = .chatGPTCodexOAuth,
@@ -23,14 +31,20 @@ public struct OpenAIAuthenticatedAPIConfiguration: Sendable {
     }
 }
 
+/// Errors thrown while building authenticated Requests transports.
 public enum OpenAIAuthenticatedTransportError: Error, Equatable, Sendable {
     case missingChatGPTAccountID
 }
 
+/// Lower-level builder for authenticated OpenAI-compatible Responses requests.
 public struct OpenAIAuthenticatedResponsesRequestBuilder: Sendable {
     public let configuration: OpenAIAuthenticatedAPIConfiguration
     public let tokenProvider: any OpenAITokenProvider
 
+    /// Creates an authenticated request builder.
+    /// - Parameters:
+    ///   - configuration: HTTP and compatibility settings used for generated requests.
+    ///   - tokenProvider: Token provider used to supply bearer tokens for each request.
     public init(
         configuration: OpenAIAuthenticatedAPIConfiguration,
         tokenProvider: any OpenAITokenProvider
@@ -39,11 +53,19 @@ public struct OpenAIAuthenticatedResponsesRequestBuilder: Sendable {
         self.tokenProvider = tokenProvider
     }
 
+    /// Builds a non-streaming authenticated request using the provider's current tokens.
+    /// - Parameter request: Low-level Responses request payload.
+    /// - Returns: A configured authenticated `URLRequest`.
+    /// - Throws: An error if tokens cannot be loaded or the request cannot be encoded.
     public func makeURLRequest(for request: OpenAIResponseRequest) async throws -> URLRequest {
         let tokens = try await tokenProvider.currentTokens()
         return try makeURLRequest(for: request, tokens: tokens, streaming: false)
     }
 
+    /// Builds a streaming authenticated request using the provider's current tokens.
+    /// - Parameter request: Low-level Responses request payload.
+    /// - Returns: A configured authenticated streaming `URLRequest`.
+    /// - Throws: An error if tokens cannot be loaded or the request cannot be encoded.
     public func makeStreamingURLRequest(for request: OpenAIResponseRequest) async throws -> URLRequest {
         let tokens = try await tokenProvider.currentTokens()
         return try makeURLRequest(for: request, tokens: tokens, streaming: true)
@@ -90,10 +112,16 @@ public struct OpenAIAuthenticatedResponsesRequestBuilder: Sendable {
     }
 }
 
+/// Concrete non-streaming transport for authenticated OpenAI-compatible Responses endpoints.
 public struct URLSessionOpenAIAuthenticatedResponsesTransport: OpenAIResponsesTransport, Sendable {
     private let builder: OpenAIAuthenticatedResponsesRequestBuilder
     private let session: any OpenAIHTTPSession
 
+    /// Creates a non-streaming authenticated Responses transport.
+    /// - Parameters:
+    ///   - configuration: HTTP and compatibility settings used for generated requests.
+    ///   - tokenProvider: Token provider used to supply and refresh bearer tokens.
+    ///   - session: Injectable HTTP session for transport customization or testing.
     public init(
         configuration: OpenAIAuthenticatedAPIConfiguration,
         tokenProvider: any OpenAITokenProvider,
@@ -106,6 +134,10 @@ public struct URLSessionOpenAIAuthenticatedResponsesTransport: OpenAIResponsesTr
         self.session = session
     }
 
+    /// Sends a request and retries once after a 401 by refreshing tokens.
+    /// - Parameter request: Low-level Responses request payload.
+    /// - Returns: The decoded raw Responses payload.
+    /// - Throws: An error if token lookup, refresh, transport execution, or response decoding fails.
     public func createResponse(_ request: OpenAIResponseRequest) async throws -> OpenAIResponse {
         let initialTokens = try await builder.tokenProvider.currentTokens()
         let initialRequest = try builder.makeURLRequest(
@@ -143,10 +175,16 @@ public struct URLSessionOpenAIAuthenticatedResponsesTransport: OpenAIResponsesTr
     }
 }
 
+/// Concrete SSE transport for authenticated OpenAI-compatible Responses endpoints.
 public struct URLSessionOpenAIAuthenticatedResponsesStreamingTransport: OpenAIResponsesStreamingTransport, Sendable {
     private let builder: OpenAIAuthenticatedResponsesRequestBuilder
     private let session: any OpenAIHTTPLineStreamingSession
 
+    /// Creates an authenticated SSE Responses transport.
+    /// - Parameters:
+    ///   - configuration: HTTP and compatibility settings used for generated requests.
+    ///   - tokenProvider: Token provider used to supply and refresh bearer tokens.
+    ///   - session: Injectable line-streaming session for transport customization or testing.
     public init(
         configuration: OpenAIAuthenticatedAPIConfiguration,
         tokenProvider: any OpenAITokenProvider,
@@ -159,6 +197,9 @@ public struct URLSessionOpenAIAuthenticatedResponsesStreamingTransport: OpenAIRe
         self.session = session
     }
 
+    /// Opens an authenticated SSE stream and retries once after a 401 by refreshing tokens.
+    /// - Parameter request: Low-level Responses request payload.
+    /// - Returns: A stream of provider-facing SSE events.
     public func streamResponse(_ request: OpenAIResponseRequest) -> AsyncThrowingStream<OpenAIResponseStreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {

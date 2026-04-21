@@ -3,6 +3,26 @@ import Foundation
 import Testing
 
 struct OpenAIURLSessionTransportTests {
+    @Test func requestBuilder_sets_custom_user_agent_header() throws {
+        let builder = OpenAIResponsesRequestBuilder(
+            configuration: .init(
+                apiKey: "sk-test",
+                baseURL: URL(string: "https://api.openai.com/v1")!,
+                userAgent: "swift-ai-sdk-tests/1.0"
+            )
+        )
+        let request = try builder.makeURLRequest(
+            for: OpenAIResponseRequest(
+                model: "gpt-5.4",
+                input: [
+                    .message(.init(role: .user, content: [.inputText("hello")])),
+                ]
+            )
+        )
+
+        #expect(request.value(forHTTPHeaderField: "User-Agent") == "swift-ai-sdk-tests/1.0")
+    }
+
     @Test func requestBuilder_sets_endpoint_headers_and_json_body() throws {
         let builder = OpenAIResponsesRequestBuilder(
             configuration: .init(apiKey: "sk-test", baseURL: URL(string: "https://api.openai.com/v1")!)

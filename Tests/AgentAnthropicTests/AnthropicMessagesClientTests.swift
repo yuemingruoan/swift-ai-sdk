@@ -4,6 +4,24 @@ import Foundation
 import Testing
 
 struct AnthropicMessagesClientTests {
+    @Test func request_builder_sets_custom_user_agent_header() throws {
+        let builder = AnthropicMessagesRequestBuilder(
+            configuration: .init(
+                apiKey: "sk-ant-test",
+                userAgent: "swift-ai-sdk-tests/1.0"
+            )
+        )
+        let request = try builder.makeURLRequest(
+            for: AnthropicMessagesRequest(
+                model: "claude-sonnet-4-20250514",
+                maxTokens: 1024,
+                messages: [.userText("hello")]
+            )
+        )
+
+        #expect(request.value(forHTTPHeaderField: "User-Agent") == "swift-ai-sdk-tests/1.0")
+    }
+
     @Test func request_builder_encodes_agent_messages_as_anthropic_messages() throws {
         let request = try AnthropicMessagesRequest(
             model: "claude-sonnet-4-20250514",

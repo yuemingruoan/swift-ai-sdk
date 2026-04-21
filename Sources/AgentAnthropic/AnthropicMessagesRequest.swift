@@ -1,6 +1,7 @@
 import AgentCore
 import Foundation
 
+/// Errors thrown while converting provider-neutral models into Anthropic request or response shapes.
 public enum AnthropicConversionError: Error, Equatable, Sendable {
     case unsupportedMessageRole(String)
     case unsupportedMessagePart(String)
@@ -8,6 +9,7 @@ public enum AnthropicConversionError: Error, Equatable, Sendable {
     case unsupportedResponseContentBlock(String)
 }
 
+/// Lower-level request model for the Anthropic Messages API.
 public struct AnthropicMessagesRequest: Codable, Equatable, Sendable {
     public var model: String
     public var maxTokens: Int
@@ -15,6 +17,13 @@ public struct AnthropicMessagesRequest: Codable, Equatable, Sendable {
     public var messages: [AnthropicMessage]
     public var tools: [AnthropicTool]?
 
+    /// Creates a request from Anthropic-native message values.
+    /// - Parameters:
+    ///   - model: Model identifier sent to the Messages API.
+    ///   - maxTokens: Output token budget for the request.
+    ///   - system: Optional top-level system instruction string.
+    ///   - messages: Anthropic-native message payloads.
+    ///   - tools: Provider-neutral tool descriptors to expose to the model.
     public init(
         model: String,
         maxTokens: Int,
@@ -29,6 +38,13 @@ public struct AnthropicMessagesRequest: Codable, Equatable, Sendable {
         self.tools = tools.isEmpty ? nil : tools.map(AnthropicTool.init(descriptor:))
     }
 
+    /// Creates a request from provider-neutral messages and tool descriptors.
+    /// - Parameters:
+    ///   - model: Model identifier sent to the Messages API.
+    ///   - maxTokens: Output token budget for the request.
+    ///   - messages: Provider-neutral messages to convert into Anthropic payloads.
+    ///   - tools: Provider-neutral tool descriptors to expose to the model.
+    /// - Throws: An error if any provider-neutral message or part cannot be represented by the Anthropic API.
     public init(
         model: String,
         maxTokens: Int,
@@ -77,6 +93,7 @@ public struct AnthropicMessagesRequest: Codable, Equatable, Sendable {
     }
 }
 
+/// Message roles accepted by the Anthropic Messages API.
 public enum AnthropicMessageRole: String, Codable, Equatable, Sendable {
     case user
     case assistant
@@ -93,24 +110,36 @@ public enum AnthropicMessageRole: String, Codable, Equatable, Sendable {
     }
 }
 
+/// Lower-level message payload for Anthropic requests.
 public struct AnthropicMessage: Codable, Equatable, Sendable {
     public var role: AnthropicMessageRole
     public var content: [AnthropicContentBlock]
 
+    /// Creates an Anthropic-native message payload.
+    /// - Parameters:
+    ///   - role: Anthropic message role.
+    ///   - content: Ordered content blocks carried by the message.
     public init(role: AnthropicMessageRole, content: [AnthropicContentBlock]) {
         self.role = role
         self.content = content
     }
 
+    /// Convenience constructor for a single text user message.
+    /// - Parameter text: Text content to place in the message.
+    /// - Returns: A user message with one text block.
     public static func userText(_ text: String) -> Self {
         .init(role: .user, content: [.text(text)])
     }
 
+    /// Convenience constructor for a single text assistant message.
+    /// - Parameter text: Text content to place in the message.
+    /// - Returns: An assistant message with one text block.
     public static func assistantText(_ text: String) -> Self {
         .init(role: .assistant, content: [.text(text)])
     }
 }
 
+/// Content block payload accepted by Anthropic messages.
 public enum AnthropicContentBlock: Equatable, Sendable {
     case text(String)
     case toolUse(AnthropicToolUse)
@@ -162,6 +191,11 @@ public struct AnthropicToolUse: Codable, Equatable, Sendable {
     public var name: String
     public var input: [String: ToolValue]
 
+    /// Creates an Anthropic tool-use block.
+    /// - Parameters:
+    ///   - id: Provider-generated tool-call identifier.
+    ///   - name: Tool name selected by the model.
+    ///   - input: Structured argument payload for the tool call.
     public init(id: String, name: String, input: [String: ToolValue]) {
         self.id = id
         self.name = name
@@ -191,11 +225,17 @@ public struct AnthropicToolUse: Codable, Equatable, Sendable {
     }
 }
 
+/// Tool result block sent back to Anthropic after executing a tool call.
 public struct AnthropicToolResult: Codable, Equatable, Sendable {
     public var toolUseID: String
     public var content: String
     public var isError: Bool?
 
+    /// Creates a tool-result block to send back to Anthropic.
+    /// - Parameters:
+    ///   - toolUseID: Identifier of the tool call being satisfied.
+    ///   - content: Serialized tool output content.
+    ///   - isError: Optional flag indicating that the tool execution failed.
     public init(toolUseID: String, content: String, isError: Bool? = nil) {
         self.toolUseID = toolUseID
         self.content = content
@@ -225,11 +265,17 @@ public struct AnthropicToolResult: Codable, Equatable, Sendable {
     }
 }
 
+/// Function tool declaration sent to the Anthropic Messages API.
 public struct AnthropicTool: Codable, Equatable, Sendable {
     public var name: String
     public var description: String?
     public var inputSchema: AnthropicToolSchema
 
+    /// Creates an Anthropic function tool declaration.
+    /// - Parameters:
+    ///   - name: Stable tool identifier.
+    ///   - description: Optional natural-language description for model tool selection.
+    ///   - inputSchema: Schema describing the accepted arguments.
     public init(
         name: String,
         description: String? = nil,
@@ -240,6 +286,8 @@ public struct AnthropicTool: Codable, Equatable, Sendable {
         self.inputSchema = inputSchema
     }
 
+    /// Converts a provider-neutral ``ToolDescriptor`` into an Anthropic tool shape.
+    /// - Parameter descriptor: Provider-neutral tool metadata.
     public init(descriptor: ToolDescriptor) {
         self.init(
             name: descriptor.name,
@@ -257,6 +305,7 @@ public struct AnthropicTool: Codable, Equatable, Sendable {
     }
 }
 
+/// Input schema model used for Anthropic tool declarations.
 public indirect enum AnthropicToolSchema: Equatable, Sendable {
     case string
     case integer
@@ -268,6 +317,8 @@ public indirect enum AnthropicToolSchema: Equatable, Sendable {
         required: [String] = []
     )
 
+    /// Creates an Anthropic tool schema from the provider-neutral schema model.
+    /// - Parameter toolInputSchema: Provider-neutral tool schema.
     public init(toolInputSchema: ToolInputSchema) {
         switch toolInputSchema {
         case .string:

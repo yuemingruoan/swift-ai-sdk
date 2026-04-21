@@ -274,28 +274,33 @@ public struct OpenAIRealtimeConfiguration: Equatable, Sendable {
     public var model: String
     public var baseURL: URL
     public var additionalHeaders: [String: String]
+    public var userAgent: String?
 
     public init(
         apiKey: String,
         model: String,
-        baseURL: URL = URL(string: "wss://api.openai.com/v1/realtime")!
+        baseURL: URL = URL(string: "wss://api.openai.com/v1/realtime")!,
+        userAgent: String? = nil
     ) {
         self.authorizationValue = "Bearer \(apiKey)"
         self.model = model
         self.baseURL = baseURL
         self.additionalHeaders = [:]
+        self.userAgent = userAgent
     }
 
     public init(
         authorizationValue: String,
         model: String,
         baseURL: URL = URL(string: "wss://api.openai.com/v1/realtime")!,
-        additionalHeaders: [String: String] = [:]
+        additionalHeaders: [String: String] = [:],
+        userAgent: String? = nil
     ) {
         self.authorizationValue = authorizationValue
         self.model = model
         self.baseURL = baseURL
         self.additionalHeaders = additionalHeaders
+        self.userAgent = userAgent
     }
 }
 
@@ -320,6 +325,9 @@ public struct OpenAIRealtimeRequestBuilder: Sendable {
 
         var request = URLRequest(url: url)
         request.setValue(configuration.authorizationValue, forHTTPHeaderField: "Authorization")
+        if let userAgent = configuration.userAgent, !userAgent.isEmpty {
+            request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        }
         for (name, value) in configuration.additionalHeaders {
             request.setValue(value, forHTTPHeaderField: name)
         }

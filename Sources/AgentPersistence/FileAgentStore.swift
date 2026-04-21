@@ -1,6 +1,7 @@
 import AgentCore
 import Foundation
 
+/// File-backed session and turn store using JSON persistence records.
 public actor FileAgentStore: AgentSessionStore, AgentTurnStore {
     private let directoryURL: URL
     private let fileManager: FileManager
@@ -12,6 +13,13 @@ public actor FileAgentStore: AgentSessionStore, AgentTurnStore {
     private var sessionsByID: [String: AgentSession]
     private var turnsBySessionID: [String: [AgentTurn]]
 
+    /// Creates or opens a file-backed store in a directory.
+    /// - Parameters:
+    ///   - directoryURL: Directory that holds the `sessions.json` and `turns.json` files.
+    ///   - fileManager: File manager used for directory creation and file I/O.
+    ///   - encoder: Encoder used when persisting session and turn records.
+    ///   - decoder: Decoder used when loading session and turn records.
+    /// - Throws: An error if the directory cannot be created or persisted records cannot be loaded.
     public init(
         directoryURL: URL,
         fileManager: FileManager = .default,
@@ -37,19 +45,32 @@ public actor FileAgentStore: AgentSessionStore, AgentTurnStore {
         )
     }
 
+    /// Saves or replaces a session and persists the sessions file immediately.
+    /// - Parameter session: Session value to store.
+    /// - Throws: An error if the updated session file cannot be written.
     public func saveSession(_ session: AgentSession) async throws {
         sessionsByID[session.id] = session
         try persistSessions()
     }
 
+    /// Loads a session by identifier.
+    /// - Parameter id: Session identifier to look up.
+    /// - Returns: The stored session, or `nil` if none exists.
+    /// - Throws: An error if the underlying persisted data cannot be read.
     public func session(id: String) async throws -> AgentSession? {
         sessionsByID[id]
     }
 
+    /// Lists all sessions in deterministic identifier order.
+    /// - Returns: All stored sessions sorted by identifier.
+    /// - Throws: An error if the underlying persisted data cannot be read.
     public func listSessions() async throws -> [AgentSession] {
         sessionsByID.values.sorted { $0.id < $1.id }
     }
 
+    /// Removes a session and its persisted turns.
+    /// - Parameter id: Session identifier to remove.
+    /// - Throws: An error if the updated session or turn files cannot be written.
     public func deleteSession(id: String) async throws {
         sessionsByID.removeValue(forKey: id)
         turnsBySessionID.removeValue(forKey: id)
@@ -57,6 +78,9 @@ public actor FileAgentStore: AgentSessionStore, AgentTurnStore {
         try persistTurns()
     }
 
+    /// Appends a turn, normalizes its sequence number, and persists the turns file.
+    /// - Parameter turn: Turn value to append.
+    /// - Throws: An error if the updated turn file cannot be written.
     public func appendTurn(_ turn: AgentTurn) async throws {
         let storedTurn = turn.withSequenceNumber(
             normalizedSequenceNumber(for: turn)
@@ -65,10 +89,17 @@ public actor FileAgentStore: AgentSessionStore, AgentTurnStore {
         try persistTurns()
     }
 
+    /// Loads turns for a session in replay order.
+    /// - Parameter sessionID: Session identifier whose turns should be returned.
+    /// - Returns: Stored turns sorted into replay order.
+    /// - Throws: An error if the underlying persisted data cannot be read.
     public func turns(forSessionID sessionID: String) async throws -> [AgentTurn] {
         turnsBySessionID[sessionID]?.sorted(by: compareTurns) ?? []
     }
 
+    /// Deletes all turns for a session and persists the change.
+    /// - Parameter sessionID: Session identifier whose turns should be removed.
+    /// - Throws: An error if the updated turn file cannot be written.
     public func deleteTurns(forSessionID sessionID: String) async throws {
         turnsBySessionID.removeValue(forKey: sessionID)
         try persistTurns()

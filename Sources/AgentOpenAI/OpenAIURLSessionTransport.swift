@@ -1,19 +1,29 @@
 import AgentCore
 import Foundation
 
+/// Connection settings for direct OpenAI Responses HTTP transports.
 public struct OpenAIAPIConfiguration: Equatable, Sendable {
     public var apiKey: String
     public var baseURL: URL
+    public var userAgent: String?
 
+    /// Creates configuration for direct OpenAI Responses transports.
+    /// - Parameters:
+    ///   - apiKey: Bearer token used for `Authorization`.
+    ///   - baseURL: Base API URL, defaulting to the official OpenAI v1 endpoint.
+    ///   - userAgent: Optional `User-Agent` header override.
     public init(
         apiKey: String,
-        baseURL: URL = URL(string: "https://api.openai.com/v1")!
+        baseURL: URL = URL(string: "https://api.openai.com/v1")!,
+        userAgent: String? = nil
     ) {
         self.apiKey = apiKey
         self.baseURL = baseURL
+        self.userAgent = userAgent
     }
 }
 
+/// Errors thrown by the direct OpenAI HTTP and SSE transports.
 public enum OpenAITransportError: Error, Equatable, Sendable {
     case invalidResponse
     case unsuccessfulStatusCode(Int)
@@ -21,12 +31,14 @@ public enum OpenAITransportError: Error, Equatable, Sendable {
     case streamingServerError(type: String, code: String?, message: String?)
 }
 
+/// Minimal async HTTP session used by non-streaming OpenAI transports.
 public protocol OpenAIHTTPSession: Sendable {
     func data(for request: URLRequest) async throws -> (Data, URLResponse)
 }
 
 extension URLSession: OpenAIHTTPSession {}
 
+/// Minimal async line-streaming session used by SSE transports.
 public protocol OpenAIHTTPLineStreamingSession: Sendable {
     func streamLines(for request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, URLResponse)
 }
@@ -56,23 +68,37 @@ extension URLSession: OpenAIHTTPLineStreamingSession {
     }
 }
 
+/// Lower-level builder that converts ``OpenAIResponseRequest`` into `URLRequest`.
 public struct OpenAIResponsesRequestBuilder: Sendable {
     public let configuration: OpenAIAPIConfiguration
 
+    /// Creates a request builder with a transport configuration.
+    /// - Parameter configuration: HTTP settings used when generating `URLRequest` values.
     public init(configuration: OpenAIAPIConfiguration) {
         self.configuration = configuration
     }
 
+    /// Builds a standard JSON Responses request.
+    /// - Parameter request: Low-level Responses request payload.
+    /// - Returns: A configured `URLRequest` ready for JSON execution.
+    /// - Throws: An error if the request body cannot be encoded.
     public func makeURLRequest(for request: OpenAIResponseRequest) throws -> URLRequest {
         let endpoint = configuration.baseURL.appendingPathComponent("responses")
         var urlRequest = URLRequest(url: endpoint)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("Bearer \(configuration.apiKey)", forHTTPHeaderField: "Authorization")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let userAgent = configuration.userAgent, !userAgent.isEmpty {
+            urlRequest.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        }
         urlRequest.httpBody = try JSONEncoder().encode(request)
         return urlRequest
     }
 
+    /// Builds a streaming Responses request with `stream = true`.
+    /// - Parameter request: Base low-level Responses request payload.
+    /// - Returns: A configured `URLRequest` ready for SSE execution.
+    /// - Throws: An error if the request body cannot be encoded.
     public func makeStreamingURLRequest(for request: OpenAIResponseRequest) throws -> URLRequest {
         try makeURLRequest(
             for: OpenAIResponseRequest(
@@ -90,10 +116,15 @@ public struct OpenAIResponsesRequestBuilder: Sendable {
     }
 }
 
+/// Concrete `URLSession` transport for non-streaming OpenAI Responses calls.
 public struct URLSessionOpenAIResponsesTransport: OpenAIResponsesTransport, Sendable {
     private let builder: OpenAIResponsesRequestBuilder
     private let session: any OpenAIHTTPSession
 
+    /// Creates a `URLSession`-backed non-streaming Responses transport.
+    /// - Parameters:
+    ///   - configuration: HTTP settings used when generating requests.
+    ///   - session: Injectable HTTP session for transport customization or testing.
     public init(
         configuration: OpenAIAPIConfiguration,
         session: any OpenAIHTTPSession = URLSession.shared
@@ -102,6 +133,10 @@ public struct URLSessionOpenAIResponsesTransport: OpenAIResponsesTransport, Send
         self.session = session
     }
 
+    /// Sends a request and decodes the JSON response body.
+    /// - Parameter request: Low-level Responses request payload.
+    /// - Returns: The decoded raw Responses payload.
+    /// - Throws: An error if request encoding, network execution, or response decoding fails.
     public func createResponse(_ request: OpenAIResponseRequest) async throws -> OpenAIResponse {
         let urlRequest = try builder.makeURLRequest(for: request)
         let (data, response) = try await session.data(for: urlRequest)
@@ -116,10 +151,12 @@ public struct URLSessionOpenAIResponsesTransport: OpenAIResponsesTransport, Send
     }
 }
 
+/// Transport contract for OpenAI Responses SSE streams.
 public protocol OpenAIResponsesStreamingTransport: Sendable {
     func streamResponse(_ request: OpenAIResponseRequest) -> AsyncThrowingStream<OpenAIResponseStreamEvent, Error>
 }
 
+/// Incremental text delta emitted by the OpenAI Responses streaming API.
 public struct OpenAIResponseTextDeltaEvent: Codable, Equatable, Sendable {
     public var itemID: String
     public var outputIndex: Int
@@ -127,6 +164,13 @@ public struct OpenAIResponseTextDeltaEvent: Codable, Equatable, Sendable {
     public var delta: String
     public var sequenceNumber: Int
 
+    /// Creates a streaming text-delta event payload.
+    /// - Parameters:
+    ///   - itemID: Identifier of the output item emitting the delta.
+    ///   - outputIndex: Output index associated with the item.
+    ///   - contentIndex: Content index associated with the delta.
+    ///   - delta: Incremental text fragment.
+    ///   - sequenceNumber: Provider sequence number for event ordering.
     public init(
         itemID: String,
         outputIndex: Int,
@@ -150,11 +194,17 @@ public struct OpenAIResponseTextDeltaEvent: Codable, Equatable, Sendable {
     }
 }
 
+/// Completed output item emitted by the OpenAI Responses streaming API.
 public struct OpenAIResponseOutputItemDoneEvent: Codable, Equatable, Sendable {
     public var item: OpenAIResponseOutputItem
     public var outputIndex: Int
     public var sequenceNumber: Int
 
+    /// Creates a completed output-item event payload.
+    /// - Parameters:
+    ///   - item: Completed output item emitted by the provider.
+    ///   - outputIndex: Output index associated with the item.
+    ///   - sequenceNumber: Provider sequence number for event ordering.
     public init(
         item: OpenAIResponseOutputItem,
         outputIndex: Int,
@@ -172,6 +222,7 @@ public struct OpenAIResponseOutputItemDoneEvent: Codable, Equatable, Sendable {
     }
 }
 
+/// Provider-facing SSE event model emitted by OpenAI Responses streaming.
 public enum OpenAIResponseStreamEvent: Equatable, Sendable {
     case responseCreated(OpenAIResponse)
     case outputTextDelta(OpenAIResponseTextDeltaEvent)
@@ -183,6 +234,9 @@ public enum OpenAIResponseStreamEvent: Equatable, Sendable {
 }
 
 public extension OpenAIResponseStreamEvent {
+    /// Projects a transport event into one or more provider-neutral stream events.
+    /// - Returns: Provider-neutral events represented by the transport event.
+    /// - Throws: An error if the event represents a failed or invalid provider response.
     func projectedAgentStreamEvents() throws -> [AgentStreamEvent] {
         switch self {
         case .responseCreated:
@@ -207,11 +261,17 @@ public extension OpenAIResponseStreamEvent {
     }
 }
 
+/// Error event emitted by the OpenAI Responses streaming API.
 public struct OpenAIResponseStreamErrorEvent: Codable, Equatable, Sendable {
     public var type: String
     public var code: String?
     public var message: String?
 
+    /// Creates a streaming error event payload.
+    /// - Parameters:
+    ///   - type: Provider error type.
+    ///   - code: Optional provider-specific error code.
+    ///   - message: Optional human-readable error description.
     public init(type: String, code: String? = nil, message: String? = nil) {
         self.type = type
         self.code = code
@@ -219,10 +279,15 @@ public struct OpenAIResponseStreamErrorEvent: Codable, Equatable, Sendable {
     }
 }
 
+/// Concrete `URLSession` transport for OpenAI Responses SSE streams.
 public struct URLSessionOpenAIResponsesStreamingTransport: OpenAIResponsesStreamingTransport, Sendable {
     private let builder: OpenAIResponsesRequestBuilder
     private let session: any OpenAIHTTPLineStreamingSession
 
+    /// Creates a `URLSession`-backed Responses SSE transport.
+    /// - Parameters:
+    ///   - configuration: HTTP settings used when generating requests.
+    ///   - session: Injectable line-streaming session for transport customization or testing.
     public init(
         configuration: OpenAIAPIConfiguration,
         session: any OpenAIHTTPLineStreamingSession = URLSession.shared
@@ -231,6 +296,9 @@ public struct URLSessionOpenAIResponsesStreamingTransport: OpenAIResponsesStream
         self.session = session
     }
 
+    /// Opens an SSE stream and decodes provider-facing stream events.
+    /// - Parameter request: Low-level Responses request payload.
+    /// - Returns: A stream of provider-facing SSE events.
     public func streamResponse(_ request: OpenAIResponseRequest) -> AsyncThrowingStream<OpenAIResponseStreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {

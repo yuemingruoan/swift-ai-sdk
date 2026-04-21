@@ -8,19 +8,22 @@ public struct OpenAIResponsesWebSocketConfiguration: Equatable, Sendable {
     public var additionalHeaders: [String: String]
     public var clientRequestID: String?
     public var betaHeaderValue: String?
+    public var userAgent: String?
 
     public init(
         authorizationValue: String,
         baseURL: URL = URL(string: "https://api.openai.com/v1")!,
         additionalHeaders: [String: String] = [:],
         clientRequestID: String? = nil,
-        betaHeaderValue: String? = OpenAIResponsesWebSocketBetaHeaderValue
+        betaHeaderValue: String? = OpenAIResponsesWebSocketBetaHeaderValue,
+        userAgent: String? = nil
     ) {
         self.authorizationValue = authorizationValue
         self.baseURL = baseURL
         self.additionalHeaders = additionalHeaders
         self.clientRequestID = clientRequestID
         self.betaHeaderValue = betaHeaderValue
+        self.userAgent = userAgent
     }
 
     public init(
@@ -28,14 +31,16 @@ public struct OpenAIResponsesWebSocketConfiguration: Equatable, Sendable {
         baseURL: URL = URL(string: "https://api.openai.com/v1")!,
         additionalHeaders: [String: String] = [:],
         clientRequestID: String? = nil,
-        betaHeaderValue: String? = OpenAIResponsesWebSocketBetaHeaderValue
+        betaHeaderValue: String? = OpenAIResponsesWebSocketBetaHeaderValue,
+        userAgent: String? = nil
     ) {
         self.init(
             authorizationValue: "Bearer \(apiKey)",
             baseURL: baseURL,
             additionalHeaders: additionalHeaders,
             clientRequestID: clientRequestID,
-            betaHeaderValue: betaHeaderValue
+            betaHeaderValue: betaHeaderValue,
+            userAgent: userAgent
         )
     }
 }
@@ -56,6 +61,9 @@ public struct OpenAIResponsesWebSocketRequestBuilder: Sendable {
         }
         if let betaHeaderValue = configuration.betaHeaderValue, !betaHeaderValue.isEmpty {
             urlRequest.setValue(betaHeaderValue, forHTTPHeaderField: "OpenAI-Beta")
+        }
+        if let userAgent = configuration.userAgent, !userAgent.isEmpty {
+            urlRequest.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         }
         for (name, value) in configuration.additionalHeaders {
             urlRequest.setValue(value, forHTTPHeaderField: name)

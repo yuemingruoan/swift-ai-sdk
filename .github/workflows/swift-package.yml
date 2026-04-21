@@ -1,0 +1,45 @@
+name: Swift Package
+
+on:
+  push:
+    branches:
+      - main
+      - codex/**
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: swift-package-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify Package And Example
+    runs-on: macos-15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Show Swift toolchain
+        run: swift --version
+
+      - name: Run root package tests
+        run: swift test
+
+      - name: Build root package examples
+        run: |
+          swift build --target OpenAIResponsesExample
+          swift build --target OpenAIToolLoopExample
+          swift build --target AnthropicToolLoopExample
+          swift build --target SessionRunnerExample
+          swift build --target PersistenceExample
+
+      - name: Build Apple host example
+        working-directory: Examples/AppleHostExample
+        run: swift build --target AppleHostExample
+
+      - name: Test Apple host example
+        working-directory: Examples/AppleHostExample
+        run: swift test
