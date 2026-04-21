@@ -9,6 +9,7 @@ public struct OpenAIAuthenticatedAPIConfiguration: Sendable {
     public var originator: String?
     public var userAgent: String?
     public var acceptLanguage: String?
+    public var transport: AgentHTTPTransportConfiguration
 
     /// Creates configuration for authenticated ChatGPT/Codex-style Responses endpoints.
     /// - Parameters:
@@ -17,18 +18,21 @@ public struct OpenAIAuthenticatedAPIConfiguration: Sendable {
     ///   - originator: Optional `originator` header value for compatible backends.
     ///   - userAgent: Optional `User-Agent` header override.
     ///   - acceptLanguage: Optional `Accept-Language` header override.
+    ///   - transport: Shared HTTP transport settings such as timeout, retry policy, headers, and request ID.
     public init(
         baseURL: URL = URL(string: "https://chatgpt.com/backend-api/codex")!,
         compatibilityProfile: OpenAICompatibilityProfile = .chatGPTCodexOAuth,
         originator: String? = "codex_cli_rs",
         userAgent: String? = nil,
-        acceptLanguage: String? = nil
+        acceptLanguage: String? = nil,
+        transport: AgentHTTPTransportConfiguration = .init()
     ) {
         self.baseURL = baseURL
         self.compatibilityProfile = compatibilityProfile
         self.originator = originator
         self.userAgent = userAgent
         self.acceptLanguage = acceptLanguage
+        self.transport = transport
     }
 }
 
@@ -84,12 +88,21 @@ public struct OpenAIAuthenticatedResponsesRequestBuilder: Sendable {
             streaming ? "text/event-stream" : "application/json",
             forHTTPHeaderField: "Accept"
         )
+        if let timeoutInterval = configuration.transport.timeoutInterval {
+            urlRequest.timeoutInterval = timeoutInterval
+        }
 
-        if let userAgent = configuration.userAgent, !userAgent.isEmpty {
+        if let userAgent = configuration.transport.userAgent ?? configuration.userAgent, !userAgent.isEmpty {
             urlRequest.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         }
         if let acceptLanguage = configuration.acceptLanguage, !acceptLanguage.isEmpty {
             urlRequest.setValue(acceptLanguage, forHTTPHeaderField: "Accept-Language")
+        }
+        if let requestID = configuration.transport.requestID, !requestID.isEmpty {
+            urlRequest.setValue(requestID, forHTTPHeaderField: "X-Request-Id")
+        }
+        for (header, value) in configuration.transport.additionalHeaders {
+            urlRequest.setValue(value, forHTTPHeaderField: header)
         }
 
         if configuration.compatibilityProfile.requiresChatGPTCodexTransform {
@@ -135,29 +148,62 @@ public struct URLSessionOpenAIAuthenticatedResponsesTransport: OpenAIResponsesTr
     /// - Returns: The decoded raw Responses payload.
     /// - Throws: An error if token lookup, refresh, transport execution, or response decoding fails.
     public func createResponse(_ request: OpenAIResponseRequest) async throws -> OpenAIResponse {
-        let initialTokens = try await builder.tokenProvider.currentTokens()
-        let initialRequest = try builder.makeURLRequest(
-            for: request,
-            tokens: initialTokens,
-            streaming: false
-        )
-        let (data, response) = try await session.data(for: initialRequest)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AgentTransportError.invalidResponse(provider: .openAI)
-        }
+        let retryPolicy = builder.configuration.transport.retryPolicy
+        var tokens = try await builder.tokenProvider.currentTokens()
+        var refreshedAfterUnauthorized = false
+        var attempt = 1
 
-        if httpResponse.statusCode == 401 {
-            let refreshedTokens = try await builder.tokenProvider.refreshTokens(reason: .unauthorized)
-            let retryRequest = try builder.makeURLRequest(
-                for: request,
-                tokens: refreshedTokens,
-                streaming: false
-            )
-            let (retryData, retryResponse) = try await session.data(for: retryRequest)
-            return try decodeResponse(data: retryData, response: retryResponse)
-        }
+        while true {
+            do {
+                let urlRequest = try builder.makeURLRequest(
+                    for: request,
+                    tokens: tokens,
+                    streaming: false
+                )
+                let (data, response) = try await session.data(for: urlRequest)
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw AgentTransportError.invalidResponse(provider: .openAI)
+                }
 
-        return try decodeResponse(data: data, response: response)
+                if httpResponse.statusCode == 401, !refreshedAfterUnauthorized {
+                    tokens = try await builder.tokenProvider.refreshTokens(reason: .unauthorized)
+                    refreshedAfterUnauthorized = true
+                    continue
+                }
+
+                if retryPolicy.shouldRetry(afterAttempt: attempt, statusCode: httpResponse.statusCode) {
+                    attempt += 1
+                    try await sleepForRetryIfNeeded(retryPolicy.backoff)
+                    continue
+                }
+
+                return try decodeResponse(data: data, response: response)
+            } catch let error as AgentAuthError {
+                throw error
+            } catch let error as AgentProviderError {
+                throw error
+            } catch let error as AgentTransportError {
+                if retryPolicy.shouldRetry(afterAttempt: attempt) {
+                    attempt += 1
+                    try await sleepForRetryIfNeeded(retryPolicy.backoff)
+                    continue
+                }
+                throw error
+            } catch let error as AgentDecodingError {
+                throw error
+            } catch {
+                let mappedError = AgentTransportError.requestFailed(
+                    provider: .openAI,
+                    description: String(describing: error)
+                )
+                if retryPolicy.shouldRetry(afterAttempt: attempt) {
+                    attempt += 1
+                    try await sleepForRetryIfNeeded(retryPolicy.backoff)
+                    continue
+                }
+                throw mappedError
+            }
+        }
     }
 
     private func decodeResponse(data: Data, response: URLResponse) throws -> OpenAIResponse {
@@ -230,30 +276,65 @@ public struct URLSessionOpenAIAuthenticatedResponsesStreamingTransport: OpenAIRe
         _ request: OpenAIResponseRequest,
         continuation: AsyncThrowingStream<OpenAIResponseStreamEvent, Error>.Continuation
     ) async throws {
-        let initialTokens = try await builder.tokenProvider.currentTokens()
-        let initialRequest = try builder.makeURLRequest(
-            for: request,
-            tokens: initialTokens,
-            streaming: true
-        )
-        let (lines, response) = try await session.streamLines(for: initialRequest)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AgentTransportError.invalidResponse(provider: .openAI)
-        }
+        let retryPolicy = builder.configuration.transport.retryPolicy
+        var tokens = try await builder.tokenProvider.currentTokens()
+        var refreshedAfterUnauthorized = false
+        var attempt = 1
 
-        if httpResponse.statusCode == 401 {
-            let refreshedTokens = try await builder.tokenProvider.refreshTokens(reason: .unauthorized)
-            let retryRequest = try builder.makeURLRequest(
-                for: request,
-                tokens: refreshedTokens,
-                streaming: true
-            )
-            let (retryLines, retryResponse) = try await session.streamLines(for: retryRequest)
-            try await consume(lines: retryLines, response: retryResponse, continuation: continuation)
-            return
-        }
+        while true {
+            do {
+                let urlRequest = try builder.makeURLRequest(
+                    for: request,
+                    tokens: tokens,
+                    streaming: true
+                )
+                let (lines, response) = try await session.streamLines(for: urlRequest)
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw AgentTransportError.invalidResponse(provider: .openAI)
+                }
 
-        try await consume(lines: lines, response: response, continuation: continuation)
+                if httpResponse.statusCode == 401, !refreshedAfterUnauthorized {
+                    tokens = try await builder.tokenProvider.refreshTokens(reason: .unauthorized)
+                    refreshedAfterUnauthorized = true
+                    continue
+                }
+
+                if retryPolicy.shouldRetry(afterAttempt: attempt, statusCode: httpResponse.statusCode) {
+                    attempt += 1
+                    try await sleepForRetryIfNeeded(retryPolicy.backoff)
+                    continue
+                }
+
+                try await consume(lines: lines, response: response, continuation: continuation)
+                return
+            } catch let error as AgentAuthError {
+                throw error
+            } catch let error as AgentProviderError {
+                throw error
+            } catch let error as AgentTransportError {
+                if retryPolicy.shouldRetry(afterAttempt: attempt) {
+                    attempt += 1
+                    try await sleepForRetryIfNeeded(retryPolicy.backoff)
+                    continue
+                }
+                throw error
+            } catch let error as AgentDecodingError {
+                throw error
+            } catch let error as AgentStreamError {
+                throw error
+            } catch {
+                let mappedError = AgentTransportError.requestFailed(
+                    provider: .openAI,
+                    description: String(describing: error)
+                )
+                if retryPolicy.shouldRetry(afterAttempt: attempt) {
+                    attempt += 1
+                    try await sleepForRetryIfNeeded(retryPolicy.backoff)
+                    continue
+                }
+                throw mappedError
+            }
+        }
     }
 
     private func consume(
@@ -361,4 +442,11 @@ private func decodeAuthenticatedSSEEvent(
 private struct OpenAIAuthenticatedStreamEventEnvelope: Decodable {
     let type: String
     let response: OpenAIResponse?
+}
+
+private func sleepForRetryIfNeeded(_ strategy: AgentHTTPBackoffStrategy) async throws {
+    guard let delay = strategy.delayDuration() else {
+        return
+    }
+    try await Task.sleep(for: delay)
 }

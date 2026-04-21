@@ -40,11 +40,14 @@ public struct OpenAIAuthenticatedResponsesWebSocketRequestBuilder: Sendable {
     ) throws -> OpenAIResponsesWebSocketConfiguration {
         var headers: [String: String] = [:]
 
-        if let userAgent = configuration.userAgent, !userAgent.isEmpty {
-            headers["User-Agent"] = userAgent
-        }
         if let acceptLanguage = configuration.acceptLanguage, !acceptLanguage.isEmpty {
             headers["Accept-Language"] = acceptLanguage
+        }
+        if let requestID = configuration.transport.requestID, !requestID.isEmpty {
+            headers["X-Request-Id"] = requestID
+        }
+        for (header, value) in configuration.transport.additionalHeaders {
+            headers[header] = value
         }
 
         if configuration.compatibilityProfile.requiresChatGPTCodexTransform {
@@ -58,7 +61,8 @@ public struct OpenAIAuthenticatedResponsesWebSocketRequestBuilder: Sendable {
             authorizationValue: "Bearer \(tokens.accessToken)",
             baseURL: configuration.baseURL,
             additionalHeaders: headers,
-            clientRequestID: clientRequestID
+            clientRequestID: clientRequestID,
+            userAgent: configuration.transport.userAgent ?? configuration.userAgent
         )
     }
 }

@@ -11,6 +11,8 @@ and the project follows semantic versioning for the SwiftPM version surface.
 
 - unified tool-loop iteration budget failures under `AgentRuntimeError` instead of provider-specific client error enums
 - clarified in the README that conversion-layer failures remain provider-specific while runtime failures use the SDK-facing taxonomy
+- documented the concrete SDK-facing error layers and the shared HTTP transport configuration surface in the README and docs reference pages
+- extended shared transport configuration coverage into authenticated OpenAI-compatible Responses HTTP/SSE transports and the header-oriented subset of the authenticated WebSocket builder
 
 ## [v0.1.0] - 2026-04-21
 

@@ -161,6 +161,39 @@ struct OpenAIAuthCompatibilityTests {
         #expect(request.value(forHTTPHeaderField: "Accept") == "text/event-stream")
     }
 
+    @Test func authenticated_request_builder_applies_shared_transport_configuration() async throws {
+        let provider = OpenAIExternalTokenProvider(
+            tokens: OpenAIAuthTokens(
+                accessToken: "access-token",
+                chatGPTAccountID: "acc_123"
+            )
+        )
+        let builder = OpenAIAuthenticatedResponsesRequestBuilder(
+            configuration: .init(
+                userAgent: "swift-ai-sdk-config/1.0",
+                transport: .init(
+                    timeoutInterval: 9,
+                    additionalHeaders: ["X-Test-Header": "fixture"],
+                    userAgent: "swift-ai-sdk-transport/2.0",
+                    requestID: "req_auth_123"
+                )
+            ),
+            tokenProvider: provider
+        )
+
+        let request = try await builder.makeURLRequest(
+            for: OpenAIResponseRequest(
+                model: "gpt-5.4",
+                input: [.message(.init(role: .user, content: [.inputText("hello")]))]
+            )
+        )
+
+        #expect(request.timeoutInterval == 9)
+        #expect(request.value(forHTTPHeaderField: "User-Agent") == "swift-ai-sdk-transport/2.0")
+        #expect(request.value(forHTTPHeaderField: "X-Test-Header") == "fixture")
+        #expect(request.value(forHTTPHeaderField: "X-Request-Id") == "req_auth_123")
+    }
+
     @Test func authenticated_websocket_request_builder_sets_chatgpt_codex_headers() async throws {
         let provider = OpenAIExternalTokenProvider(
             tokens: OpenAIAuthTokens(
@@ -180,6 +213,32 @@ struct OpenAIAuthCompatibilityTests {
         #expect(request.value(forHTTPHeaderField: "chatgpt-account-id") == "acc_123")
         #expect(request.value(forHTTPHeaderField: "OpenAI-Beta") == "responses_websockets=2026-02-06")
         #expect(request.value(forHTTPHeaderField: "originator") == nil)
+    }
+
+    @Test func authenticated_websocket_request_builder_applies_shared_transport_configuration() async throws {
+        let provider = OpenAIExternalTokenProvider(
+            tokens: OpenAIAuthTokens(
+                accessToken: "access-token",
+                chatGPTAccountID: "acc_123"
+            )
+        )
+        let builder = OpenAIAuthenticatedResponsesWebSocketRequestBuilder(
+            configuration: .init(
+                transport: .init(
+                    additionalHeaders: ["X-Test-Header": "fixture"],
+                    userAgent: "swift-ai-sdk-transport/2.0",
+                    requestID: "req_ws_123"
+                )
+            ),
+            tokenProvider: provider
+        )
+
+        let request = try await builder.makeURLRequest(clientRequestID: "client_req_123")
+
+        #expect(request.value(forHTTPHeaderField: "User-Agent") == "swift-ai-sdk-transport/2.0")
+        #expect(request.value(forHTTPHeaderField: "X-Test-Header") == "fixture")
+        #expect(request.value(forHTTPHeaderField: "X-Request-Id") == "req_ws_123")
+        #expect(request.value(forHTTPHeaderField: "x-client-request-id") == "client_req_123")
     }
 
     @Test func authenticated_request_builder_uses_third_party_base_url_without_chatgpt_headers() async throws {
@@ -250,6 +309,154 @@ struct OpenAIAuthCompatibilityTests {
         #expect(requests[0].value(forHTTPHeaderField: "Authorization") == "Bearer expired-token")
         #expect(requests[1].value(forHTTPHeaderField: "Authorization") == "Bearer fresh-token")
         #expect(await provider.refreshCallCount == 1)
+    }
+
+    @Test func authenticated_transport_retries_retryable_status_codes_using_shared_retry_policy() async throws {
+        let session = AuthStubHTTPSession(
+            responses: [
+                .init(statusCode: 503, body: Data()),
+                .init(
+                    statusCode: 200,
+                    body: """
+                    {"id":"resp_retry","status":"completed","output":[]}
+                    """.data(using: .utf8)!
+                ),
+            ]
+        )
+        let provider = OpenAIExternalTokenProvider(
+            tokens: OpenAIAuthTokens(
+                accessToken: "access-token",
+                chatGPTAccountID: "acc_123"
+            )
+        )
+        let transport = URLSessionOpenAIAuthenticatedResponsesTransport(
+            configuration: .init(
+                transport: .init(
+                    retryPolicy: .init(
+                        maxAttempts: 2,
+                        backoff: .none,
+                        retryableStatusCodes: [503]
+                    )
+                )
+            ),
+            tokenProvider: provider,
+            session: session
+        )
+
+        let response = try await transport.createResponse(
+            OpenAIResponseRequest(
+                model: "gpt-5.4",
+                input: [.message(.init(role: .user, content: [.inputText("hello")]))]
+            )
+        )
+
+        #expect(response.id == "resp_retry")
+        let requests = await session.recordedRequests
+        #expect(requests.count == 2)
+    }
+
+    @Test func authenticated_transport_passes_shared_transport_configuration_to_injected_session() async throws {
+        let session = AuthStubHTTPSession(
+            responses: [
+                .init(
+                    statusCode: 200,
+                    body: """
+                    {"id":"resp_transport_config","status":"completed","output":[]}
+                    """.data(using: .utf8)!
+                ),
+            ]
+        )
+        let provider = OpenAIExternalTokenProvider(
+            tokens: OpenAIAuthTokens(
+                accessToken: "access-token",
+                chatGPTAccountID: "acc_123"
+            )
+        )
+        let transport = URLSessionOpenAIAuthenticatedResponsesTransport(
+            configuration: .init(
+                userAgent: "swift-ai-sdk-auth-config/1.0",
+                acceptLanguage: "en-US",
+                transport: .init(
+                    timeoutInterval: 9,
+                    additionalHeaders: ["X-Test-Header": "fixture"],
+                    userAgent: "swift-ai-sdk-auth-transport/2.0",
+                    requestID: "req_auth_transport_123"
+                )
+            ),
+            tokenProvider: provider,
+            session: session
+        )
+
+        let response = try await transport.createResponse(
+            OpenAIResponseRequest(
+                model: "gpt-5.4",
+                input: [.message(.init(role: .user, content: [.inputText("hello")]))]
+            )
+        )
+
+        #expect(response.id == "resp_transport_config")
+        let requests = await session.recordedRequests
+        #expect(requests.count == 1)
+        let request = requests[0]
+        #expect(request.timeoutInterval == 9)
+        #expect(request.value(forHTTPHeaderField: "User-Agent") == "swift-ai-sdk-auth-transport/2.0")
+        #expect(request.value(forHTTPHeaderField: "Accept-Language") == "en-US")
+        #expect(request.value(forHTTPHeaderField: "X-Test-Header") == "fixture")
+        #expect(request.value(forHTTPHeaderField: "X-Request-Id") == "req_auth_transport_123")
+    }
+
+    @Test func authenticated_streaming_transport_passes_shared_transport_configuration_to_injected_session() async throws {
+        let session = AuthStubLineStreamingSession(
+            lines: [
+                "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_auth_stream\",\"status\":\"completed\",\"output\":[]}}",
+                "",
+            ]
+        )
+        let provider = OpenAIExternalTokenProvider(
+            tokens: OpenAIAuthTokens(
+                accessToken: "access-token",
+                chatGPTAccountID: "acc_123"
+            )
+        )
+        let transport = URLSessionOpenAIAuthenticatedResponsesStreamingTransport(
+            configuration: .init(
+                userAgent: "swift-ai-sdk-auth-config/1.0",
+                acceptLanguage: "en-US",
+                transport: .init(
+                    timeoutInterval: 11,
+                    additionalHeaders: ["X-Test-Header": "fixture"],
+                    userAgent: "swift-ai-sdk-auth-stream/2.0",
+                    requestID: "req_auth_stream_123"
+                )
+            ),
+            tokenProvider: provider,
+            session: session
+        )
+
+        var events: [OpenAIResponseStreamEvent] = []
+        for try await event in transport.streamResponse(
+            OpenAIResponseRequest(
+                model: "gpt-5.4",
+                input: [.message(.init(role: .user, content: [.inputText("hello")]))]
+            )
+        ) {
+            events.append(event)
+        }
+
+        #expect(events == [
+            .responseCompleted(
+                OpenAIResponse(id: "resp_auth_stream", status: .completed, output: [])
+            ),
+        ])
+        let requests = await session.recordedRequests
+        #expect(requests.count == 1)
+        let request = requests[0]
+        #expect(request.timeoutInterval == 11)
+        #expect(request.value(forHTTPHeaderField: "Accept") == "text/event-stream")
+        #expect(request.value(forHTTPHeaderField: "User-Agent") == "swift-ai-sdk-auth-stream/2.0")
+        #expect(request.value(forHTTPHeaderField: "Accept-Language") == "en-US")
+        #expect(request.value(forHTTPHeaderField: "X-Test-Header") == "fixture")
+        #expect(request.value(forHTTPHeaderField: "X-Request-Id") == "req_auth_stream_123")
     }
 
     @Test func authenticated_transport_surfaces_refresh_unsupported_after_401() async throws {
@@ -773,6 +980,37 @@ private actor OAuthStubHTTPSession: OpenAIHTTPSession {
                 httpVersion: nil,
                 headerFields: nil
             )!
+        )
+    }
+}
+
+private actor AuthStubLineStreamingSession: OpenAIHTTPLineStreamingSession {
+    let lines: [String]
+    private(set) var recordedRequests: [URLRequest] = []
+
+    init(lines: [String]) {
+        self.lines = lines
+    }
+
+    func streamLines(for request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, URLResponse) {
+        recordedRequests.append(request)
+        let response = HTTPURLResponse(
+            url: request.url ?? URL(string: "https://chatgpt.com/backend-api/codex/responses")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        return (
+            AsyncThrowingStream { continuation in
+                Task {
+                    for line in lines {
+                        continuation.yield(line)
+                    }
+                    continuation.finish()
+                }
+            },
+            response
         )
     }
 }

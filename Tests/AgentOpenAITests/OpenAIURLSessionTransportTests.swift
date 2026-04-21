@@ -31,6 +31,50 @@ struct OpenAIURLSessionTransportTests {
         #expect(request.value(forHTTPHeaderField: "X-Request-Id") == "req_openai_123")
     }
 
+    @Test func transport_passes_shared_transport_configuration_to_injected_session() async throws {
+        let session = StubHTTPSession(
+            data: """
+            {
+              "id":"resp_transport_config",
+              "status":"completed",
+              "output":[]
+            }
+            """.data(using: .utf8)!,
+            response: HTTPURLResponse(
+                url: URL(string: "https://api.openai.com/v1/responses")!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+        )
+        let transport = URLSessionOpenAIResponsesTransport(
+            configuration: .init(
+                apiKey: "sk-test",
+                transport: .init(
+                    timeoutInterval: 12,
+                    additionalHeaders: ["X-Test-Header": "fixture"],
+                    userAgent: "swift-ai-sdk-tests/2.0",
+                    requestID: "req_openai_transport_123"
+                )
+            ),
+            session: session
+        )
+
+        let response = try await transport.createResponse(
+            OpenAIResponseRequest(
+                model: "gpt-5.4",
+                input: [.message(.init(role: .user, content: [.inputText("hello")]))]
+            )
+        )
+
+        #expect(response.id == "resp_transport_config")
+        let lastRequest = try #require(await session.lastRequest)
+        #expect(lastRequest.timeoutInterval == 12)
+        #expect(lastRequest.value(forHTTPHeaderField: "User-Agent") == "swift-ai-sdk-tests/2.0")
+        #expect(lastRequest.value(forHTTPHeaderField: "X-Test-Header") == "fixture")
+        #expect(lastRequest.value(forHTTPHeaderField: "X-Request-Id") == "req_openai_transport_123")
+    }
+
     @Test func requestBuilder_sets_custom_user_agent_header() throws {
         let builder = OpenAIResponsesRequestBuilder(
             configuration: .init(

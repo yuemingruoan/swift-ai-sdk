@@ -30,6 +30,54 @@ struct AnthropicMessagesClientTests {
         #expect(request.value(forHTTPHeaderField: "X-Request-Id") == "req_anthropic_123")
     }
 
+    @Test func transport_passes_shared_transport_configuration_to_injected_session() async throws {
+        let session = RecordingAnthropicHTTPSession(
+            data: """
+            {
+              "id":"msg_transport_config",
+              "model":"claude-sonnet-4-20250514",
+              "role":"assistant",
+              "content":[{"type":"text","text":"hello"}],
+              "stop_reason":"end_turn",
+              "usage":{"input_tokens":10,"output_tokens":5}
+            }
+            """.data(using: .utf8)!,
+            response: HTTPURLResponse(
+                url: URL(string: "https://api.anthropic.com/v1/messages")!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+        )
+        let transport = URLSessionAnthropicMessagesTransport(
+            configuration: .init(
+                apiKey: "sk-ant-test",
+                transport: .init(
+                    timeoutInterval: 8,
+                    additionalHeaders: ["X-Test-Header": "fixture"],
+                    userAgent: "swift-ai-sdk-tests/2.0",
+                    requestID: "req_anthropic_transport_123"
+                )
+            ),
+            session: session
+        )
+
+        let response = try await transport.createMessage(
+            AnthropicMessagesRequest(
+                model: "claude-sonnet-4-20250514",
+                maxTokens: 1024,
+                messages: [.userText("hello")]
+            )
+        )
+
+        #expect(response.id == "msg_transport_config")
+        let lastRequest = try #require(await session.lastRequest)
+        #expect(lastRequest.timeoutInterval == 8)
+        #expect(lastRequest.value(forHTTPHeaderField: "User-Agent") == "swift-ai-sdk-tests/2.0")
+        #expect(lastRequest.value(forHTTPHeaderField: "X-Test-Header") == "fixture")
+        #expect(lastRequest.value(forHTTPHeaderField: "X-Request-Id") == "req_anthropic_transport_123")
+    }
+
     @Test func request_builder_sets_custom_user_agent_header() throws {
         let builder = AnthropicMessagesRequestBuilder(
             configuration: .init(
@@ -360,6 +408,22 @@ private actor StubWeatherTransport: RemoteToolTransport {
 private func jsonObject(for value: some Encodable) throws -> [String: Any] {
     let data = try JSONEncoder().encode(value)
     return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+}
+
+private actor RecordingAnthropicHTTPSession: AnthropicHTTPSession {
+    let data: Data
+    let response: URLResponse
+    private(set) var lastRequest: URLRequest?
+
+    init(data: Data, response: URLResponse) {
+        self.data = data
+        self.response = response
+    }
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        lastRequest = request
+        return (data, response)
+    }
 }
 
 private actor SequencedAnthropicHTTPSession: AnthropicHTTPSession {

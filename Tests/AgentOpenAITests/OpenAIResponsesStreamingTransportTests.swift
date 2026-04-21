@@ -34,6 +34,50 @@ struct OpenAIResponsesStreamingTransportTests {
         #expect(tools[0]["name"] as? String == "lookup_weather")
     }
 
+    @Test func streaming_transport_passes_shared_transport_configuration_to_injected_session() async throws {
+        let session = StubLineStreamingSession(
+            lines: [
+                "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_stream_config\",\"status\":\"completed\",\"output\":[]}}",
+                "",
+            ]
+        )
+        let transport = URLSessionOpenAIResponsesStreamingTransport(
+            configuration: .init(
+                apiKey: "sk-test",
+                transport: .init(
+                    timeoutInterval: 7,
+                    additionalHeaders: ["X-Test-Header": "fixture"],
+                    userAgent: "swift-ai-sdk-streaming-tests/2.0",
+                    requestID: "req_stream_123"
+                )
+            ),
+            session: session
+        )
+
+        var events: [OpenAIResponseStreamEvent] = []
+        for try await event in transport.streamResponse(
+            OpenAIResponseRequest(
+                model: "gpt-5.4",
+                input: [.message(.init(role: .user, content: [.inputText("hello")]))]
+            )
+        ) {
+            events.append(event)
+        }
+
+        #expect(events == [
+            .responseCompleted(
+                OpenAIResponse(id: "resp_stream_config", status: .completed, output: [])
+            ),
+        ])
+        let requests = await session.recordedRequests
+        #expect(requests.count == 1)
+        let request = requests[0]
+        #expect(request.timeoutInterval == 7)
+        #expect(request.value(forHTTPHeaderField: "User-Agent") == "swift-ai-sdk-streaming-tests/2.0")
+        #expect(request.value(forHTTPHeaderField: "X-Test-Header") == "fixture")
+        #expect(request.value(forHTTPHeaderField: "X-Request-Id") == "req_stream_123")
+    }
+
     @Test func streaming_transport_decodes_sse_events() async throws {
         let session = StubLineStreamingSession(
             lines: [
@@ -272,6 +316,7 @@ struct OpenAIResponsesStreamingTransportTests {
 
 private actor StubLineStreamingSession: OpenAIHTTPLineStreamingSession {
     let lines: [String]
+    private(set) var recordedRequests: [URLRequest] = []
     private(set) var wasCancelled = false
 
     init(lines: [String]) {
@@ -279,6 +324,7 @@ private actor StubLineStreamingSession: OpenAIHTTPLineStreamingSession {
     }
 
     func streamLines(for request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, URLResponse) {
+        recordedRequests.append(request)
         let response = HTTPURLResponse(
             url: URL(string: "https://api.openai.com/v1/responses")!,
             statusCode: 200,

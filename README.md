@@ -150,6 +150,95 @@ Examples:
 - `OpenAITokenProvider`, `OpenAIAuthenticatedResponsesRequestBuilder`, and authenticated transports for ChatGPT/Codex-style bearer flows
 - `AgentSessionStore`, `AgentTurnStore`, `FileAgentStore`, and persistence record mappers when the host needs direct persistence control
 
+## SDK Error Taxonomy
+
+The SDK-facing error surface is intentionally layered so hosts can distinguish
+provider failures from transport, decoding, runtime, auth, stream, and
+persistence failures.
+
+| Layer | Public type(s) | Typical meaning |
+| --- | --- | --- |
+| Provider | `AgentProviderError` | The provider returned a valid HTTP response with a non-2xx status code. |
+| Transport | `AgentTransportError` | The request could not be executed cleanly, the response was not a valid `HTTPURLResponse`, the connection was unavailable, or retries were exhausted. |
+| Decoding | `AgentDecodingError` | Request encoding, response JSON decoding, or provider-to-SDK projection failed. |
+| Runtime | `AgentRuntimeError` | A higher-level orchestration rule failed, such as tool-loop iteration limits. |
+| Auth | `AgentAuthError` | Token lookup/refresh, OAuth callback, compatibility-profile auth, or secure storage failed. |
+| Stream | `AgentStreamError` | SSE or other streaming responses failed at the event/protocol layer. |
+| Persistence | `AgentPersistenceError` | File-backed state could not be read as valid persisted data or could not be written. |
+| Conversion-specific | `OpenAIConversionError`, `AnthropicConversionError`, `OpenAIRealtimeMessageConversionError` | Deterministic provider-shaping failures that remain provider-specific instead of being folded into the shared SDK taxonomy. |
+
+When a shared error depends on a provider boundary, it carries `AgentProviderID`
+so hosts can log or branch on `openai` vs `anthropic` without parsing strings.
+
+## Shared HTTP Transport Configuration
+
+`AgentHTTPTransportConfiguration` is the shared configuration surface for the
+direct `URLSession`-backed OpenAI and Anthropic HTTP transports, plus the
+authenticated OpenAI-compatible Responses HTTP/SSE transports:
+
+- `timeoutInterval`: copied onto each generated `URLRequest`
+- `retryPolicy.maxAttempts`: total attempts, including the initial request
+- `retryPolicy.backoff`: currently `.none` or `.constant(milliseconds:)`
+- `retryPolicy.retryableStatusCodes`: defaults to `408`, `429`, `500`, `502`, `503`, and `504`
+- `additionalHeaders`: appended to each generated request
+- `userAgent`: sets `User-Agent` and overrides the top-level config `userAgent` when both are present
+- `requestID`: sets the `X-Request-Id` header
+
+```swift
+import AgentCore
+import AgentAnthropic
+import AgentOpenAI
+import Foundation
+
+let transportConfiguration = AgentHTTPTransportConfiguration(
+    timeoutInterval: 30,
+    retryPolicy: .init(
+        maxAttempts: 3,
+        backoff: .constant(milliseconds: 500)
+    ),
+    additionalHeaders: ["X-Client-Name": "ExampleHost"],
+    userAgent: "ExampleHost/0.1.1",
+    requestID: UUID().uuidString
+)
+
+let session = URLSession(configuration: .ephemeral)
+
+let openAITransport = URLSessionOpenAIResponsesTransport(
+    configuration: .init(
+        apiKey: openAIKey,
+        transport: transportConfiguration
+    ),
+    session: session
+)
+
+let anthropicTransport = URLSessionAnthropicMessagesTransport(
+    configuration: .init(
+        apiKey: anthropicKey,
+        transport: transportConfiguration
+    ),
+    session: session
+)
+
+let authenticatedTransport = URLSessionOpenAIAuthenticatedResponsesTransport(
+    configuration: .init(
+        transport: transportConfiguration
+    ),
+    tokenProvider: tokenProvider,
+    session: session
+)
+```
+
+The same shared transport config also applies to
+`URLSessionOpenAIResponsesStreamingTransport` and
+`URLSessionOpenAIAuthenticatedResponsesStreamingTransport`. For authenticated
+Requests, `OpenAIAuthenticatedAPIConfiguration` now embeds that shared
+transport config while still exposing compatibility-specific settings such as
+`originator` and `Accept-Language`.
+
+OpenAI WebSocket transports still keep a separate config shape, but the
+authenticated WebSocket builder now reuses the header-oriented subset of the
+shared transport config: `additionalHeaders`, `userAgent`, and `requestID`.
+
 ## Examples
 
 - `OpenAIResponsesExample` for the simplest OpenAI Responses text flow
@@ -174,8 +263,9 @@ cd Examples/AppleHostExample && swift build --target AppleHostExample
 
 - public API entrypoints now use Swift-style doc comments
 - the documented surface covers both high-level APIs and lower-level builders, request models, and transports
-- SDK-facing error taxonomy now covers provider, transport, decoding, runtime, auth, stream, and persistence failure classes
-- conversion-layer failures remain intentionally provider-specific via `OpenAIConversionError` and `AnthropicConversionError`
+- the README now documents the SDK-facing error taxonomy and the shared HTTP transport configuration surface
+- conversion-layer failures remain intentionally provider-specific via `OpenAIConversionError`, `AnthropicConversionError`, and `OpenAIRealtimeMessageConversionError`
+- a longer reference for these two topics lives in [docs/SDK_ERRORS_AND_TRANSPORT.md](docs/SDK_ERRORS_AND_TRANSPORT.md)
 - release governance and tag conventions live in [docs/RELEASING.md](docs/RELEASING.md)
 - forward-looking version milestones live in [ROADMAP.md](ROADMAP.md)
 
