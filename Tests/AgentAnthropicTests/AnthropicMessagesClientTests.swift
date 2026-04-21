@@ -273,6 +273,58 @@ struct AnthropicMessagesClientTests {
         #expect(response.id == "msg_123")
         #expect(await session.requestCount == 2)
     }
+
+    @Test func client_throws_sdk_runtime_error_when_tool_loop_exceeds_iteration_budget() async throws {
+        let transport = StubAnthropicTransport(
+            responses: [
+                AnthropicMessageResponse(
+                    id: "msg_1",
+                    model: "claude-sonnet-4-20250514",
+                    role: .assistant,
+                    content: [
+                        .toolUse(
+                            .init(
+                                id: "toolu_123",
+                                name: "lookup_weather",
+                                input: ["city": .string("Paris")]
+                            )
+                        ),
+                    ],
+                    stopReason: .toolUse,
+                    stopSequence: nil,
+                    usage: .init(inputTokens: 10, outputTokens: 5)
+                ),
+            ]
+        )
+        let tool = ToolDescriptor.remote(
+            name: "lookup_weather",
+            transport: "weather-api",
+            inputSchema: .object(
+                properties: ["city": .string],
+                required: ["city"]
+            )
+        )
+        let registry = ToolRegistry()
+        try await registry.register(tool)
+        let executor = ToolExecutor(registry: registry)
+        await executor.register(StubWeatherTransport())
+        let client = AnthropicMessagesClient(transport: transport)
+
+        await #expect(
+            throws: AgentRuntimeError.toolCallLimitExceeded(provider: .anthropic, maxIterations: 1)
+        ) {
+            _ = try await client.resolveToolCalls(
+                AnthropicMessagesRequest(
+                    model: "claude-sonnet-4-20250514",
+                    maxTokens: 1024,
+                    messages: [.userText("weather in Paris?")],
+                    tools: [tool]
+                ),
+                using: executor,
+                maxIterations: 1
+            )
+        }
+    }
 }
 
 private actor StubAnthropicTransport: AnthropicMessagesTransport {

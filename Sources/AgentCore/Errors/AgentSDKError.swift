@@ -25,6 +25,11 @@ public enum AgentDecodingError: Error, Equatable, Sendable {
     case responseProjection(provider: AgentProviderID, description: String)
 }
 
+/// Errors surfaced while orchestrating multi-step runtime flows above provider transports.
+public enum AgentRuntimeError: Error, Equatable, Sendable {
+    case toolCallLimitExceeded(provider: AgentProviderID, maxIterations: Int)
+}
+
 /// Errors surfaced by token providers, OAuth flows, and authenticated transports.
 public enum AgentAuthError: Error, Equatable, Sendable {
     case missingCredentials(String)

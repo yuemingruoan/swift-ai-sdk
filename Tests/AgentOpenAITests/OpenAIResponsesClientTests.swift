@@ -1062,6 +1062,55 @@ struct OpenAIResponsesClientTests {
         #expect(followUpInput[1]["call_id"] as? String == "call_123")
         #expect(followUpInput[2]["type"] as? String == "function_call_output")
     }
+
+    @Test func client_throws_sdk_runtime_error_when_tool_loop_exceeds_iteration_budget() async throws {
+        let tool = ToolDescriptor.remote(
+            name: "lookup_weather",
+            transport: "weather-api",
+            inputSchema: .object(
+                properties: ["city": .string],
+                required: ["city"]
+            )
+        )
+        let transport = SequencedResponsesTransport(
+            responses: [
+                OpenAIResponse(
+                    id: "resp_1",
+                    status: .completed,
+                    output: [
+                        .functionCall(
+                            .init(
+                                callID: "call_123",
+                                name: "lookup_weather",
+                                arguments: "{\"city\":\"Paris\"}",
+                                status: .completed
+                            )
+                        ),
+                    ]
+                ),
+            ]
+        )
+        let registry = ToolRegistry()
+        try await registry.register(tool)
+        let executor = ToolExecutor(registry: registry)
+        await executor.register(RecordingWeatherRemoteTransport())
+        let client = OpenAIResponsesClient(transport: transport)
+
+        await #expect(
+            throws: AgentRuntimeError.toolCallLimitExceeded(provider: .openAI, maxIterations: 1)
+        ) {
+            _ = try await client.resolveToolCalls(
+                try OpenAIResponseRequest(
+                    model: "gpt-5.4",
+                    messages: [.userText("what is the weather in Paris?")],
+                    tools: [tool],
+                    toolChoice: .required
+                ),
+                using: executor,
+                maxIterations: 1
+            )
+        }
+    }
 }
 
 private struct StubResponsesStreamingTransport: OpenAIResponsesStreamingTransport {

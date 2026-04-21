@@ -6,11 +6,6 @@ public protocol OpenAIResponsesTransport: Sendable {
     func createResponse(_ request: OpenAIResponseRequest) async throws -> OpenAIResponse
 }
 
-/// Errors surfaced by ``OpenAIResponsesClient`` orchestration helpers.
-public enum OpenAIResponsesClientError: Error, Equatable, Sendable {
-    case toolCallLimitExceeded(Int)
-}
-
 /// Follow-up strategy used after a model response emits tool calls.
 public enum OpenAIResponsesFollowUpStrategy: Equatable, Sendable {
     case previousResponseID
@@ -115,7 +110,7 @@ public struct OpenAIResponsesClient: Sendable {
 
         while true {
             guard remainingIterations > 0 else {
-                throw OpenAIResponsesClientError.toolCallLimitExceeded(maxIterations)
+                throw AgentRuntimeError.toolCallLimitExceeded(provider: .openAI, maxIterations: maxIterations)
             }
 
             let response = try await createResponse(currentRequest)
@@ -376,7 +371,7 @@ private extension OpenAIResponsesClient {
 
                     while true {
                         guard remainingIterations > 0 else {
-                            throw OpenAIResponsesClientError.toolCallLimitExceeded(maxIterations)
+                            throw AgentRuntimeError.toolCallLimitExceeded(provider: .openAI, maxIterations: maxIterations)
                         }
 
                         var nextRequest: OpenAIResponseRequest?

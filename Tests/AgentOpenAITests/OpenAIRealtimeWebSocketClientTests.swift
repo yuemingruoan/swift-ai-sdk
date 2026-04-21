@@ -231,6 +231,33 @@ struct OpenAIRealtimeWebSocketClientTests {
         #expect(outputItem["output"] as? String == #"{"forecast":"sunny"}"#)
         #expect(sentTexts[1].contains("\"type\":\"response.create\""))
     }
+
+    @Test func websocket_client_throws_sdk_runtime_error_when_tool_loop_exceeds_iteration_budget() async throws {
+        let toolCallResponse = #"{"type":"response.done","response":{"id":"resp_1","status":"completed","output":[{"type":"function_call","call_id":"call_123","name":"lookup_weather","arguments":"{\"city\":\"Paris\"}","status":"completed"}]}}"#
+        let session = StubWebSocketSession(incomingMessages: [toolCallResponse])
+        let registry = ToolRegistry()
+        try await registry.register(
+            .remote(
+                name: "lookup_weather",
+                transport: "weather-api",
+                inputSchema: .object(properties: ["city": .string], required: ["city"])
+            )
+        )
+        let executor = ToolExecutor(registry: registry)
+        await executor.register(RecordingRealtimeWeatherTransport())
+        let client = OpenAIRealtimeWebSocketClient(
+            configuration: .init(apiKey: "sk-test", model: "gpt-realtime"),
+            session: session
+        )
+
+        try await client.connect()
+
+        await #expect(
+            throws: AgentRuntimeError.toolCallLimitExceeded(provider: .openAI, maxIterations: 1)
+        ) {
+            _ = try await client.receiveUntilTurnFinished(using: executor, maxIterations: 1)
+        }
+    }
 }
 
 private final class StubWebSocketSession: @unchecked Sendable, OpenAIWebSocketSession {

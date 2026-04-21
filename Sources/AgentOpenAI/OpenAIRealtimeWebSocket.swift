@@ -497,7 +497,7 @@ public actor OpenAIRealtimeWebSocketClient {
 
         while true {
             guard remainingIterations > 0 else {
-                throw OpenAIResponsesClientError.toolCallLimitExceeded(maxIterations)
+                throw AgentRuntimeError.toolCallLimitExceeded(provider: .openAI, maxIterations: maxIterations)
             }
 
             let realtimeEvent = try await receive()

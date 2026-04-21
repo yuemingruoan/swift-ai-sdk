@@ -7,9 +7,10 @@ and the project follows semantic versioning for the SwiftPM version surface.
 
 ## [Unreleased]
 
-### Added
+### Changed
 
-- placeholder for post-`v0.1.0` development
+- unified tool-loop iteration budget failures under `AgentRuntimeError` instead of provider-specific client error enums
+- clarified in the README that conversion-layer failures remain provider-specific while runtime failures use the SDK-facing taxonomy
 
 ## [v0.1.0] - 2026-04-21
 

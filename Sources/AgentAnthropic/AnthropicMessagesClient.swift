@@ -160,11 +160,6 @@ public struct URLSessionAnthropicMessagesTransport: AnthropicMessagesTransport, 
     }
 }
 
-/// Errors surfaced by ``AnthropicMessagesClient`` orchestration helpers.
-public enum AnthropicMessagesClientError: Error, Equatable, Sendable {
-    case toolCallLimitExceeded(Int)
-}
-
 private func sleepForRetryIfNeeded(_ strategy: AgentHTTPBackoffStrategy) async throws {
     guard let delay = strategy.delayDuration() else {
         return
@@ -380,7 +375,7 @@ public struct AnthropicMessagesClient: Sendable {
 
         while true {
             guard remainingIterations > 0 else {
-                throw AnthropicMessagesClientError.toolCallLimitExceeded(maxIterations)
+                throw AgentRuntimeError.toolCallLimitExceeded(provider: .anthropic, maxIterations: maxIterations)
             }
 
             let response = try await createMessage(currentRequest)
@@ -453,7 +448,7 @@ private extension AnthropicMessagesClient {
 
         while true {
             guard remainingIterations > 0 else {
-                throw AnthropicMessagesClientError.toolCallLimitExceeded(maxIterations)
+                throw AgentRuntimeError.toolCallLimitExceeded(provider: .anthropic, maxIterations: maxIterations)
             }
 
             let response = try await createMessage(currentRequest)
