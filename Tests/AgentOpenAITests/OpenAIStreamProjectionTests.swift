@@ -86,6 +86,56 @@ struct OpenAIStreamProjectionTests {
         ])
     }
 
+    @Test func streaming_client_projects_completed_output_items_when_completed_response_omits_output() async throws {
+        let transport = StubStreamingTransport(
+            events: [
+                .responseCreated(.init(id: "resp_123", status: .inProgress, output: [])),
+                .outputTextDelta(
+                    .init(itemID: "msg_123", outputIndex: 0, contentIndex: 0, delta: "Hel", sequenceNumber: 1)
+                ),
+                .outputItemDone(
+                    .init(
+                        item: .message(
+                            .init(
+                                id: "msg_123",
+                                status: .completed,
+                                role: .assistant,
+                                content: [.outputText("hello")]
+                            )
+                        ),
+                        outputIndex: 0,
+                        sequenceNumber: 10
+                    )
+                ),
+                .responseCompleted(
+                    .init(
+                        id: "resp_123",
+                        status: .completed,
+                        output: []
+                    )
+                ),
+            ]
+        )
+        let client = OpenAIResponsesStreamingClient(transport: transport)
+
+        var events: [AgentStreamEvent] = []
+        for try await event in client.streamProjectedResponse(
+            OpenAIResponseRequest(
+                model: "gpt-5.4",
+                input: [.message(.init(role: .user, content: [.inputText("hello")]))]
+            )
+        ) {
+            events.append(event)
+        }
+
+        #expect(events == [
+            .textDelta("Hel"),
+            .messagesCompleted([
+                AgentMessage(role: .assistant, parts: [.text("hello")]),
+            ]),
+        ])
+    }
+
     @Test func realtime_event_projection_maps_delta_and_completed_response() throws {
         let deltaEvent = OpenAIRealtimeEvent(
             type: "response.output_text.delta",

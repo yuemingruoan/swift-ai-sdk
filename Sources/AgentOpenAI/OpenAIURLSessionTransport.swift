@@ -78,7 +78,10 @@ public struct OpenAIResponsesRequestBuilder: Sendable {
             for: OpenAIResponseRequest(
                 model: request.model,
                 input: request.input,
+                instructions: request.instructions,
                 previousResponseID: request.previousResponseID,
+                store: request.store,
+                promptCacheKey: request.promptCacheKey,
                 stream: true,
                 tools: request.tools,
                 toolChoice: request.toolChoice
@@ -147,9 +150,32 @@ public struct OpenAIResponseTextDeltaEvent: Codable, Equatable, Sendable {
     }
 }
 
+public struct OpenAIResponseOutputItemDoneEvent: Codable, Equatable, Sendable {
+    public var item: OpenAIResponseOutputItem
+    public var outputIndex: Int
+    public var sequenceNumber: Int
+
+    public init(
+        item: OpenAIResponseOutputItem,
+        outputIndex: Int,
+        sequenceNumber: Int
+    ) {
+        self.item = item
+        self.outputIndex = outputIndex
+        self.sequenceNumber = sequenceNumber
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case item
+        case outputIndex = "output_index"
+        case sequenceNumber = "sequence_number"
+    }
+}
+
 public enum OpenAIResponseStreamEvent: Equatable, Sendable {
     case responseCreated(OpenAIResponse)
     case outputTextDelta(OpenAIResponseTextDeltaEvent)
+    case outputItemDone(OpenAIResponseOutputItemDoneEvent)
     case responseFailed(OpenAIResponse)
     case responseIncomplete(OpenAIResponse)
     case error(OpenAIResponseStreamErrorEvent)
@@ -163,6 +189,8 @@ public extension OpenAIResponseStreamEvent {
             return []
         case .outputTextDelta(let delta):
             return [.textDelta(delta.delta)]
+        case .outputItemDone:
+            return []
         case .responseFailed(let response):
             throw OpenAITransportError.streamingResponseFailed(response.status)
         case .responseIncomplete(let response):
@@ -218,7 +246,9 @@ public struct URLSessionOpenAIResponsesStreamingTransport: OpenAIResponsesStream
 
                     var dataLines: [String] = []
                     for try await line in lines {
-                        if line.isEmpty {
+                        let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                        if trimmedLine.isEmpty {
                             if let event = try decodeSSEEvent(from: dataLines) {
                                 continuation.yield(event)
                             }
@@ -226,8 +256,19 @@ public struct URLSessionOpenAIResponsesStreamingTransport: OpenAIResponsesStream
                             continue
                         }
 
-                        if line.hasPrefix("data:") {
-                            dataLines.append(String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces))
+                        if trimmedLine.hasPrefix("event:") {
+                            if let event = try decodeSSEEvent(from: dataLines) {
+                                continuation.yield(event)
+                            }
+                            dataLines.removeAll(keepingCapacity: true)
+                            continue
+                        }
+
+                        if trimmedLine.hasPrefix("data:") {
+                            dataLines.append(
+                                String(trimmedLine.dropFirst(5))
+                                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                            )
                         }
                     }
 
@@ -273,6 +314,8 @@ private func decodeSSEEvent(from dataLines: [String]) throws -> OpenAIResponseSt
         return .responseCreated(response)
     case "response.output_text.delta":
         return .outputTextDelta(try JSONDecoder().decode(OpenAIResponseTextDeltaEvent.self, from: jsonData))
+    case "response.output_item.done":
+        return .outputItemDone(try JSONDecoder().decode(OpenAIResponseOutputItemDoneEvent.self, from: jsonData))
     case "response.failed":
         guard let response = envelope.response else {
             throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "missing response payload"))

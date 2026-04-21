@@ -4,7 +4,10 @@ import Foundation
 public struct OpenAIResponseRequest: Codable, Equatable, Sendable {
     public var model: String
     public var input: [OpenAIResponseInputItem]
+    public var instructions: String?
     public var previousResponseID: String?
+    public var store: Bool?
+    public var promptCacheKey: String?
     public var stream: Bool?
     public var tools: [OpenAIResponseTool]?
     public var toolChoice: OpenAIResponseToolChoice?
@@ -12,14 +15,20 @@ public struct OpenAIResponseRequest: Codable, Equatable, Sendable {
     public init(
         model: String,
         input: [OpenAIResponseInputItem],
+        instructions: String? = nil,
         previousResponseID: String? = nil,
+        store: Bool? = nil,
+        promptCacheKey: String? = nil,
         stream: Bool? = nil,
         tools: [OpenAIResponseTool]? = nil,
         toolChoice: OpenAIResponseToolChoice? = nil
     ) {
         self.model = model
         self.input = input
+        self.instructions = instructions
         self.previousResponseID = previousResponseID
+        self.store = store
+        self.promptCacheKey = promptCacheKey
         self.stream = stream
         self.tools = tools
         self.toolChoice = toolChoice
@@ -36,7 +45,10 @@ public struct OpenAIResponseRequest: Codable, Equatable, Sendable {
         self.init(
             model: model,
             input: try messages.map { .message(try .init(agentMessage: $0)) },
+            instructions: nil,
             previousResponseID: previousResponseID,
+            store: nil,
+            promptCacheKey: nil,
             stream: stream,
             tools: tools.map(OpenAIResponseTool.init(descriptor:)),
             toolChoice: toolChoice
@@ -56,7 +68,10 @@ public struct OpenAIResponseRequest: Codable, Equatable, Sendable {
         self.init(
             model: model,
             input: builder.build(),
+            instructions: nil,
             previousResponseID: previousResponseID,
+            store: nil,
+            promptCacheKey: nil,
             stream: stream,
             tools: tools.map(OpenAIResponseTool.init(descriptor:)),
             toolChoice: toolChoice
@@ -66,7 +81,10 @@ public struct OpenAIResponseRequest: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case model
         case input
+        case instructions
         case previousResponseID = "previous_response_id"
+        case store
+        case promptCacheKey = "prompt_cache_key"
         case stream
         case tools
         case toolChoice = "tool_choice"
@@ -251,6 +269,7 @@ public struct OpenAIResponseInputBuilder: Equatable, Sendable {
 
 public enum OpenAIResponseInputItem: Equatable, Sendable {
     case message(OpenAIInputMessage)
+    case functionCall(OpenAIResponseFunctionCall)
     case functionCallOutput(OpenAIFunctionCallOutput)
 }
 
@@ -261,6 +280,7 @@ extension OpenAIResponseInputItem: Codable {
 
     enum Kind: String, Codable {
         case message
+        case functionCall = "function_call"
         case functionCallOutput = "function_call_output"
     }
 
@@ -269,6 +289,8 @@ extension OpenAIResponseInputItem: Codable {
         switch try container.decode(Kind.self, forKey: .type) {
         case .message:
             self = .message(try OpenAIInputMessage(from: decoder))
+        case .functionCall:
+            self = .functionCall(try OpenAIResponseFunctionCall(from: decoder))
         case .functionCallOutput:
             self = .functionCallOutput(try OpenAIFunctionCallOutput(from: decoder))
         }
@@ -278,6 +300,8 @@ extension OpenAIResponseInputItem: Codable {
         switch self {
         case .message(let message):
             try message.encode(to: encoder)
+        case .functionCall(let functionCall):
+            try functionCall.encode(to: encoder)
         case .functionCallOutput(let output):
             try output.encode(to: encoder)
         }
@@ -350,6 +374,8 @@ public struct OpenAIInputMessage: Codable, Equatable, Sendable {
 public enum OpenAIInputMessageContent: Equatable, Sendable {
     case inputText(String)
     case inputImage(URL)
+    case outputText(String)
+    case refusal(String)
 }
 
 extension OpenAIInputMessageContent: Codable {
@@ -357,11 +383,14 @@ extension OpenAIInputMessageContent: Codable {
         case type
         case text
         case imageURL = "image_url"
+        case refusal
     }
 
     enum Kind: String, Codable {
         case inputText = "input_text"
         case inputImage = "input_image"
+        case outputText = "output_text"
+        case refusal
     }
 
     public init(from decoder: any Decoder) throws {
@@ -371,6 +400,10 @@ extension OpenAIInputMessageContent: Codable {
             self = .inputText(try container.decode(String.self, forKey: .text))
         case .inputImage:
             self = .inputImage(try container.decode(URL.self, forKey: .imageURL))
+        case .outputText:
+            self = .outputText(try container.decode(String.self, forKey: .text))
+        case .refusal:
+            self = .refusal(try container.decode(String.self, forKey: .refusal))
         }
     }
 
@@ -383,6 +416,12 @@ extension OpenAIInputMessageContent: Codable {
         case .inputImage(let url):
             try container.encode(Kind.inputImage, forKey: .type)
             try container.encode(url, forKey: .imageURL)
+        case .outputText(let text):
+            try container.encode(Kind.outputText, forKey: .type)
+            try container.encode(text, forKey: .text)
+        case .refusal(let refusal):
+            try container.encode(Kind.refusal, forKey: .type)
+            try container.encode(refusal, forKey: .refusal)
         }
     }
 }

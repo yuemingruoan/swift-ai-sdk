@@ -14,6 +14,25 @@ struct OpenAIRealtimeWebSocketClientTests {
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer sk-test")
     }
 
+    @Test func requestBuilder_supports_custom_authorization_headers() throws {
+        let builder = OpenAIRealtimeRequestBuilder(
+            configuration: .init(
+                authorizationValue: "Bearer oauth-token",
+                model: "gpt-realtime",
+                baseURL: URL(string: "wss://chatgpt.com/backend-api/codex/realtime")!,
+                additionalHeaders: [
+                    "chatgpt-account-id": "acc_123",
+                    "originator": "codex_cli_rs",
+                ]
+            )
+        )
+        let request = try builder.makeURLRequest()
+
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer oauth-token")
+        #expect(request.value(forHTTPHeaderField: "chatgpt-account-id") == "acc_123")
+        #expect(request.value(forHTTPHeaderField: "originator") == "codex_cli_rs")
+    }
+
     @Test func websocket_client_sends_and_receives_json_events() async throws {
         let session = StubWebSocketSession(
             incomingMessages: [

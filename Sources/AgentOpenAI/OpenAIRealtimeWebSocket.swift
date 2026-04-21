@@ -270,18 +270,32 @@ public struct OpenAIRealtimeResponseCreateEvent: Codable, Equatable, Sendable {
 }
 
 public struct OpenAIRealtimeConfiguration: Equatable, Sendable {
-    public var apiKey: String
+    public var authorizationValue: String
     public var model: String
     public var baseURL: URL
+    public var additionalHeaders: [String: String]
 
     public init(
         apiKey: String,
         model: String,
         baseURL: URL = URL(string: "wss://api.openai.com/v1/realtime")!
     ) {
-        self.apiKey = apiKey
+        self.authorizationValue = "Bearer \(apiKey)"
         self.model = model
         self.baseURL = baseURL
+        self.additionalHeaders = [:]
+    }
+
+    public init(
+        authorizationValue: String,
+        model: String,
+        baseURL: URL = URL(string: "wss://api.openai.com/v1/realtime")!,
+        additionalHeaders: [String: String] = [:]
+    ) {
+        self.authorizationValue = authorizationValue
+        self.model = model
+        self.baseURL = baseURL
+        self.additionalHeaders = additionalHeaders
     }
 }
 
@@ -305,7 +319,10 @@ public struct OpenAIRealtimeRequestBuilder: Sendable {
         }
 
         var request = URLRequest(url: url)
-        request.setValue("Bearer \(configuration.apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue(configuration.authorizationValue, forHTTPHeaderField: "Authorization")
+        for (name, value) in configuration.additionalHeaders {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
         return request
     }
 }

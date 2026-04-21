@@ -182,6 +182,45 @@ struct OpenAIResponsesClientTests {
         #expect(input[0]["output"] as? String == "{\"ok\":true}")
     }
 
+    @Test func request_builder_supports_replayed_assistant_messages_and_function_calls() throws {
+        let request = OpenAIResponseRequest(
+            model: "gpt-5.4",
+            input: [
+                .message(
+                    .init(
+                        role: .assistant,
+                        content: [
+                            .outputText("Checking weather."),
+                            .refusal("Cannot browse."),
+                        ]
+                    )
+                ),
+                .functionCall(
+                    .init(
+                        callID: "call_123",
+                        name: "lookup_weather",
+                        arguments: "{\"city\":\"Paris\"}"
+                    )
+                ),
+            ]
+        )
+
+        let payload = try jsonObject(for: request)
+        let input = try #require(payload["input"] as? [[String: Any]])
+        let assistantContent = try #require(input[0]["content"] as? [[String: Any]])
+
+        #expect(input[0]["role"] as? String == "assistant")
+        #expect(assistantContent[0]["type"] as? String == "output_text")
+        #expect(assistantContent[0]["text"] as? String == "Checking weather.")
+        #expect(assistantContent[1]["type"] as? String == "refusal")
+        #expect(assistantContent[1]["refusal"] as? String == "Cannot browse.")
+
+        #expect(input[1]["type"] as? String == "function_call")
+        #expect(input[1]["call_id"] as? String == "call_123")
+        #expect(input[1]["name"] as? String == "lookup_weather")
+        #expect(input[1]["arguments"] as? String == "{\"city\":\"Paris\"}")
+    }
+
     @Test func structured_request_builder_encodes_mixed_input_items() throws {
         let request = OpenAIResponseRequest(
             model: "gpt-5.4",
@@ -587,6 +626,441 @@ struct OpenAIResponsesClientTests {
         let followUpInput = try #require(followUpPayload["input"] as? [[String: Any]])
         #expect(followUpInput[0]["type"] as? String == "function_call_output")
         #expect(followUpInput[0]["output"] as? String == #"{"forecast":"sunny"}"#)
+    }
+
+    @Test func client_can_resolve_tool_calls_by_replaying_input_history() async throws {
+        let tool = ToolDescriptor.remote(
+            name: "lookup_weather",
+            transport: "weather-api",
+            inputSchema: .object(
+                properties: ["city": .string],
+                required: ["city"]
+            )
+        )
+        let transport = SequencedResponsesTransport(
+            responses: [
+                OpenAIResponse(
+                    id: "resp_1",
+                    status: .completed,
+                    output: [
+                        .message(
+                            .init(
+                                id: "msg_1",
+                                role: .assistant,
+                                content: [.outputText("Checking weather.")]
+                            )
+                        ),
+                        .functionCall(
+                            .init(
+                                callID: "call_123",
+                                name: "lookup_weather",
+                                arguments: "{\"city\":\"Paris\"}",
+                                status: .completed
+                            )
+                        ),
+                    ]
+                ),
+                OpenAIResponse(
+                    id: "resp_2",
+                    status: .completed,
+                    output: [
+                        .message(
+                            .init(
+                                id: "msg_2",
+                                role: .assistant,
+                                content: [.outputText("Paris is sunny.")]
+                            )
+                        ),
+                    ]
+                ),
+            ]
+        )
+        let registry = ToolRegistry()
+        try await registry.register(tool)
+        let executor = ToolExecutor(registry: registry)
+        await executor.register(RecordingWeatherRemoteTransport())
+
+        let client = OpenAIResponsesClient(
+            transport: transport,
+            followUpStrategy: .replayInput
+        )
+        let projection = try await client.resolveToolCalls(
+            try OpenAIResponseRequest(
+                model: "gpt-5.4",
+                messages: [.userText("what is the weather in Paris?")],
+                tools: [tool],
+                toolChoice: .required
+            ),
+            using: executor
+        )
+
+        #expect(projection.messages == [
+            AgentMessage(role: .assistant, parts: [.text("Paris is sunny.")]),
+        ])
+
+        let requests = await transport.recordedRequests
+        #expect(requests.count == 2)
+        #expect(requests[1].previousResponseID == nil)
+
+        let followUpPayload = try jsonObject(for: requests[1])
+        let followUpInput = try #require(followUpPayload["input"] as? [[String: Any]])
+        let assistantContent = try #require(followUpInput[1]["content"] as? [[String: Any]])
+
+        #expect(followUpInput.count == 4)
+        #expect(followUpInput[0]["role"] as? String == "user")
+        #expect(followUpInput[1]["role"] as? String == "assistant")
+        #expect(assistantContent[0]["type"] as? String == "output_text")
+        #expect(assistantContent[0]["text"] as? String == "Checking weather.")
+        #expect(followUpInput[2]["type"] as? String == "function_call")
+        #expect(followUpInput[2]["call_id"] as? String == "call_123")
+        #expect(followUpInput[2]["id"] == nil)
+        #expect(followUpInput[2]["status"] == nil)
+        #expect(followUpInput[3]["type"] as? String == "function_call_output")
+        #expect(followUpInput[3]["output"] as? String == #"{"forecast":"sunny"}"#)
+    }
+
+    @Test func client_can_stream_and_resolve_tool_calls_by_replaying_input_history() async throws {
+        let tool = ToolDescriptor.remote(
+            name: "lookup_weather",
+            transport: "weather-api",
+            inputSchema: .object(
+                properties: ["city": .string],
+                required: ["city"]
+            )
+        )
+        let streamingTransport = SequencedResponsesStreamingTransport(
+            eventSequences: [
+                [
+                    .responseCreated(.init(id: "resp_1", status: .inProgress, output: [])),
+                    .outputTextDelta(
+                        .init(itemID: "msg_1", outputIndex: 0, contentIndex: 0, delta: "Checking", sequenceNumber: 1)
+                    ),
+                    .responseCompleted(
+                        .init(
+                            id: "resp_1",
+                            status: .completed,
+                            output: [
+                                .message(
+                                    .init(
+                                        id: "msg_1",
+                                        role: .assistant,
+                                        content: [.outputText("Checking weather.")]
+                                    )
+                                ),
+                                .functionCall(
+                                    .init(
+                                        callID: "call_123",
+                                        name: "lookup_weather",
+                                        arguments: "{\"city\":\"Paris\"}",
+                                        status: .completed
+                                    )
+                                ),
+                            ]
+                        )
+                    ),
+                ],
+                [
+                    .responseCreated(.init(id: "resp_2", status: .inProgress, output: [])),
+                    .outputTextDelta(
+                        .init(itemID: "msg_2", outputIndex: 0, contentIndex: 0, delta: "Paris is sunny.", sequenceNumber: 2)
+                    ),
+                    .responseCompleted(
+                        .init(
+                            id: "resp_2",
+                            status: .completed,
+                            output: [
+                                .message(
+                                    .init(
+                                        id: "msg_2",
+                                        role: .assistant,
+                                        content: [.outputText("Paris is sunny.")]
+                                    )
+                                ),
+                            ]
+                        )
+                    ),
+                ],
+            ]
+        )
+        let registry = ToolRegistry()
+        try await registry.register(tool)
+        let executor = ToolExecutor(registry: registry)
+        await executor.register(RecordingWeatherRemoteTransport())
+
+        let client = OpenAIResponsesClient(
+            transport: StubResponsesTransport(),
+            streamingTransport: streamingTransport,
+            followUpStrategy: .replayInput
+        )
+
+        var events: [AgentStreamEvent] = []
+        for try await event in client.projectedResponseEvents(
+            try OpenAIResponseRequest(
+                model: "gpt-5.4",
+                messages: [.userText("what is the weather in Paris?")],
+                tools: [tool],
+                toolChoice: .required
+            ),
+            using: executor,
+            stream: true
+        ) {
+            events.append(event)
+        }
+
+        #expect(events == [
+            .textDelta("Checking"),
+            .toolCall(
+                .init(
+                    callID: "call_123",
+                    invocation: ToolInvocation(
+                        toolName: "lookup_weather",
+                        arguments: ["city": .string("Paris")]
+                    )
+                )
+            ),
+            .messagesCompleted([
+                AgentMessage(role: .assistant, parts: [.text("Checking weather.")]),
+            ]),
+            .textDelta("Paris is sunny."),
+            .messagesCompleted([
+                AgentMessage(role: .assistant, parts: [.text("Paris is sunny.")]),
+            ]),
+        ])
+
+        let requests = streamingTransport.recordedRequests
+        #expect(requests.count == 2)
+        #expect(requests[1].previousResponseID == nil)
+
+        let followUpPayload = try jsonObject(for: requests[1])
+        let followUpInput = try #require(followUpPayload["input"] as? [[String: Any]])
+        #expect(followUpInput[2]["type"] as? String == "function_call")
+        #expect(followUpInput[2]["id"] == nil)
+        #expect(followUpInput[2]["status"] == nil)
+        #expect(followUpInput[3]["type"] as? String == "function_call_output")
+    }
+
+    @Test func client_can_stream_and_resolve_tool_calls_when_completed_response_omits_output() async throws {
+        let tool = ToolDescriptor.remote(
+            name: "lookup_weather",
+            transport: "weather-api",
+            inputSchema: .object(
+                properties: ["city": .string],
+                required: ["city"]
+            )
+        )
+        let streamingTransport = SequencedResponsesStreamingTransport(
+            eventSequences: [
+                [
+                    .responseCreated(.init(id: "resp_1", status: .inProgress, output: [])),
+                    .outputTextDelta(
+                        .init(itemID: "msg_1", outputIndex: 0, contentIndex: 0, delta: "Checking", sequenceNumber: 1)
+                    ),
+                    .outputItemDone(
+                        .init(
+                            item: .functionCall(
+                                .init(
+                                    id: "fc_123",
+                                    callID: "call_123",
+                                    name: "lookup_weather",
+                                    arguments: "{\"city\":\"Paris\"}",
+                                    status: .completed
+                                )
+                            ),
+                            outputIndex: 0,
+                            sequenceNumber: 9
+                        )
+                    ),
+                    .responseCompleted(
+                        .init(
+                            id: "resp_1",
+                            status: .completed,
+                            output: []
+                        )
+                    ),
+                ],
+                [
+                    .responseCreated(.init(id: "resp_2", status: .inProgress, output: [])),
+                    .outputTextDelta(
+                        .init(itemID: "msg_2", outputIndex: 0, contentIndex: 0, delta: "Paris is sunny.", sequenceNumber: 2)
+                    ),
+                    .outputItemDone(
+                        .init(
+                            item: .message(
+                                .init(
+                                    id: "msg_2",
+                                    status: .completed,
+                                    role: .assistant,
+                                    content: [.outputText("Paris is sunny.")]
+                                )
+                            ),
+                            outputIndex: 0,
+                            sequenceNumber: 10
+                        )
+                    ),
+                    .responseCompleted(
+                        .init(
+                            id: "resp_2",
+                            status: .completed,
+                            output: []
+                        )
+                    ),
+                ],
+            ]
+        )
+        let registry = ToolRegistry()
+        try await registry.register(tool)
+        let executor = ToolExecutor(registry: registry)
+        await executor.register(RecordingWeatherRemoteTransport())
+
+        let client = OpenAIResponsesClient(
+            transport: StubResponsesTransport(),
+            streamingTransport: streamingTransport
+        )
+
+        var events: [AgentStreamEvent] = []
+        for try await event in client.projectedResponseEvents(
+            try OpenAIResponseRequest(
+                model: "gpt-5.4",
+                messages: [.userText("what is the weather in Paris?")],
+                tools: [tool],
+                toolChoice: .required
+            ),
+            using: executor,
+            stream: true
+        ) {
+            events.append(event)
+        }
+
+        #expect(events == [
+            .textDelta("Checking"),
+            .toolCall(
+                .init(
+                    callID: "call_123",
+                    invocation: ToolInvocation(
+                        toolName: "lookup_weather",
+                        arguments: ["city": .string("Paris")]
+                    )
+                )
+            ),
+            .textDelta("Paris is sunny."),
+            .messagesCompleted([
+                AgentMessage(role: .assistant, parts: [.text("Paris is sunny.")]),
+            ]),
+        ])
+    }
+
+    @Test func replay_input_streaming_follow_up_uses_output_item_done_when_completed_output_is_empty() async throws {
+        let tool = ToolDescriptor.remote(
+            name: "lookup_weather",
+            transport: "weather-api",
+            inputSchema: .object(
+                properties: ["city": .string],
+                required: ["city"]
+            )
+        )
+        let streamingTransport = SequencedResponsesStreamingTransport(
+            eventSequences: [
+                [
+                    .responseCreated(.init(id: "resp_1", status: .inProgress, output: [])),
+                    .outputItemDone(
+                        .init(
+                            item: .functionCall(
+                                .init(
+                                    id: "fc_123",
+                                    callID: "call_123",
+                                    name: "lookup_weather",
+                                    arguments: "{\"city\":\"Paris\"}",
+                                    status: .completed
+                                )
+                            ),
+                            outputIndex: 0,
+                            sequenceNumber: 9
+                        )
+                    ),
+                    .responseCompleted(
+                        .init(
+                            id: "resp_1",
+                            status: .completed,
+                            output: []
+                        )
+                    ),
+                ],
+                [
+                    .responseCreated(.init(id: "resp_2", status: .inProgress, output: [])),
+                    .outputItemDone(
+                        .init(
+                            item: .message(
+                                .init(
+                                    id: "msg_2",
+                                    status: .completed,
+                                    role: .assistant,
+                                    content: [.outputText("Paris is sunny.")]
+                                )
+                            ),
+                            outputIndex: 0,
+                            sequenceNumber: 10
+                        )
+                    ),
+                    .responseCompleted(
+                        .init(
+                            id: "resp_2",
+                            status: .completed,
+                            output: []
+                        )
+                    ),
+                ],
+            ]
+        )
+        let registry = ToolRegistry()
+        try await registry.register(tool)
+        let executor = ToolExecutor(registry: registry)
+        await executor.register(RecordingWeatherRemoteTransport())
+
+        let client = OpenAIResponsesClient(
+            transport: StubResponsesTransport(),
+            streamingTransport: streamingTransport,
+            followUpStrategy: .replayInput
+        )
+
+        var events: [AgentStreamEvent] = []
+        for try await event in client.projectedResponseEvents(
+            try OpenAIResponseRequest(
+                model: "gpt-5.4",
+                messages: [.userText("what is the weather in Paris?")],
+                tools: [tool],
+                toolChoice: .required
+            ),
+            using: executor,
+            stream: true
+        ) {
+            events.append(event)
+        }
+
+        #expect(events == [
+            .toolCall(
+                .init(
+                    callID: "call_123",
+                    invocation: ToolInvocation(
+                        toolName: "lookup_weather",
+                        arguments: ["city": .string("Paris")]
+                    )
+                )
+            ),
+            .messagesCompleted([
+                AgentMessage(role: .assistant, parts: [.text("Paris is sunny.")]),
+            ]),
+        ])
+
+        let requests = streamingTransport.recordedRequests
+        #expect(requests.count == 2)
+        #expect(requests[1].previousResponseID == nil)
+
+        let followUpPayload = try jsonObject(for: requests[1])
+        let followUpInput = try #require(followUpPayload["input"] as? [[String: Any]])
+        #expect(followUpInput.count == 3)
+        #expect(followUpInput[1]["type"] as? String == "function_call")
+        #expect(followUpInput[1]["call_id"] as? String == "call_123")
+        #expect(followUpInput[2]["type"] as? String == "function_call_output")
     }
 }
 

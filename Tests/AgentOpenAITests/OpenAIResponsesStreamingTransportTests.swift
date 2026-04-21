@@ -79,6 +79,116 @@ struct OpenAIResponsesStreamingTransportTests {
         ])
     }
 
+    @Test func streaming_transport_decodes_output_item_done_events() async throws {
+        let session = StubLineStreamingSession(
+            lines: [
+                "data: {\"type\":\"response.output_item.done\",\"item\":{\"id\":\"msg_123\",\"type\":\"message\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello\"}]},\"output_index\":0,\"sequence_number\":10}",
+                "",
+            ]
+        )
+        let transport = URLSessionOpenAIResponsesStreamingTransport(
+            configuration: .init(apiKey: "sk-test"),
+            session: session
+        )
+
+        var events: [OpenAIResponseStreamEvent] = []
+        for try await event in transport.streamResponse(
+            OpenAIResponseRequest(
+                model: "gpt-5.4",
+                input: [.message(.init(role: .user, content: [.inputText("hello")]))]
+            )
+        ) {
+            events.append(event)
+        }
+
+        #expect(events == [
+            .outputItemDone(
+                OpenAIResponseOutputItemDoneEvent(
+                    item: .message(
+                        OpenAIResponseMessage(
+                            id: "msg_123",
+                            status: .completed,
+                            role: .assistant,
+                            content: [.outputText("hello")]
+                        )
+                    ),
+                    outputIndex: 0,
+                    sequenceNumber: 10
+                )
+            ),
+        ])
+    }
+
+    @Test func streaming_transport_handles_crlf_separators() async throws {
+        let session = StubLineStreamingSession(
+            lines: [
+                "event: response.created\r",
+                "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_123\",\"status\":\"in_progress\",\"output\":[]}}\r",
+                "\r",
+                "event: response.completed\r",
+                "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_123\",\"status\":\"completed\",\"output\":[]}}\r",
+                "\r",
+            ]
+        )
+        let transport = URLSessionOpenAIResponsesStreamingTransport(
+            configuration: .init(apiKey: "sk-test"),
+            session: session
+        )
+
+        var events: [OpenAIResponseStreamEvent] = []
+        for try await event in transport.streamResponse(
+            OpenAIResponseRequest(
+                model: "gpt-5.4",
+                input: [.message(.init(role: .user, content: [.inputText("hello")]))]
+            )
+        ) {
+            events.append(event)
+        }
+
+        #expect(events == [
+            .responseCreated(
+                OpenAIResponse(id: "resp_123", status: .inProgress, output: [])
+            ),
+            .responseCompleted(
+                OpenAIResponse(id: "resp_123", status: .completed, output: [])
+            ),
+        ])
+    }
+
+    @Test func streaming_transport_handles_urlsession_line_streams_without_empty_separators() async throws {
+        let session = StubLineStreamingSession(
+            lines: [
+                "event: response.created",
+                "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_123\",\"status\":\"in_progress\",\"output\":[]}}",
+                "event: response.completed",
+                "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_123\",\"status\":\"completed\",\"output\":[]}}",
+            ]
+        )
+        let transport = URLSessionOpenAIResponsesStreamingTransport(
+            configuration: .init(apiKey: "sk-test"),
+            session: session
+        )
+
+        var events: [OpenAIResponseStreamEvent] = []
+        for try await event in transport.streamResponse(
+            OpenAIResponseRequest(
+                model: "gpt-5.4",
+                input: [.message(.init(role: .user, content: [.inputText("hello")]))]
+            )
+        ) {
+            events.append(event)
+        }
+
+        #expect(events == [
+            .responseCreated(
+                OpenAIResponse(id: "resp_123", status: .inProgress, output: [])
+            ),
+            .responseCompleted(
+                OpenAIResponse(id: "resp_123", status: .completed, output: [])
+            ),
+        ])
+    }
+
     @Test func streaming_transport_surfaces_failed_events() async throws {
         let session = StubLineStreamingSession(
             lines: [

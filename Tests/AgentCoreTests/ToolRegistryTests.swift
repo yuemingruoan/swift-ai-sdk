@@ -21,7 +21,12 @@ struct ToolRegistryTests {
         let descriptor = ToolDescriptor.local(
             name: "echo",
             input: EchoInput.self,
-            output: EchoOutput.self
+            output: EchoOutput.self,
+            description: "Echoes text",
+            outputSchema: ToolInputSchema.object(
+                properties: ["echoed": ToolInputSchema.string],
+                required: ["echoed"]
+            )
         )
 
         let encoded = try JSONEncoder().encode(descriptor)
@@ -31,6 +36,46 @@ struct ToolRegistryTests {
         #expect(!json.contains("EchoOutput"))
         #expect(!json.contains("inputType"))
         #expect(!json.contains("outputType"))
+    }
+
+    @Test func descriptors_preserve_description_and_output_schema() async throws {
+        let registry = ToolRegistry()
+
+        try await registry.register(
+            .local(
+                name: "echo",
+                input: EchoInput.self,
+                output: EchoOutput.self,
+                description: "Echoes text",
+                outputSchema: ToolInputSchema.object(
+                    properties: ["echoed": ToolInputSchema.string],
+                    required: ["echoed"]
+                )
+            )
+        )
+        try await registry.register(
+            .remote(
+                name: "search",
+                transport: "mcp",
+                inputSchema: ToolInputSchema.object(
+                    properties: ["query": ToolInputSchema.string],
+                    required: ["query"]
+                ),
+                description: "Searches remote index",
+                outputSchema: ToolInputSchema.array(items: ToolInputSchema.string)
+            )
+        )
+
+        let local = await registry.descriptor(named: "echo")
+        let remote = await registry.descriptor(named: "search")
+
+        #expect(local?.description == "Echoes text")
+        #expect(local?.outputSchema == ToolInputSchema.object(
+            properties: ["echoed": ToolInputSchema.string],
+            required: ["echoed"]
+        ))
+        #expect(remote?.description == "Searches remote index")
+        #expect(remote?.outputSchema == ToolInputSchema.array(items: ToolInputSchema.string))
     }
 }
 

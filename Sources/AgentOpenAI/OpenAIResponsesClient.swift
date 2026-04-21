@@ -9,16 +9,24 @@ public enum OpenAIResponsesClientError: Error, Equatable, Sendable {
     case toolCallLimitExceeded(Int)
 }
 
+public enum OpenAIResponsesFollowUpStrategy: Equatable, Sendable {
+    case previousResponseID
+    case replayInput
+}
+
 public struct OpenAIResponsesClient: Sendable {
     private let transport: any OpenAIResponsesTransport
     private let streamingTransport: (any OpenAIResponsesStreamingTransport)?
+    private let followUpStrategy: OpenAIResponsesFollowUpStrategy
 
     public init(
         transport: any OpenAIResponsesTransport,
-        streamingTransport: (any OpenAIResponsesStreamingTransport)? = nil
+        streamingTransport: (any OpenAIResponsesStreamingTransport)? = nil,
+        followUpStrategy: OpenAIResponsesFollowUpStrategy = .previousResponseID
     ) {
         self.transport = transport
         self.streamingTransport = streamingTransport
+        self.followUpStrategy = followUpStrategy
     }
 
     public func createResponse(
@@ -78,17 +86,11 @@ public struct OpenAIResponsesClient: Sendable {
                 return projection
             }
 
-            let followUpItems = try await makeFunctionCallOutputs(
-                for: projection.toolCalls,
+            currentRequest = try await followUpRequest(
+                from: currentRequest,
+                response: response,
+                toolCalls: projection.toolCalls,
                 using: executor
-            )
-            currentRequest = OpenAIResponseRequest(
-                model: currentRequest.model,
-                input: followUpItems,
-                previousResponseID: response.id,
-                stream: currentRequest.stream,
-                tools: currentRequest.tools,
-                toolChoice: nil
             )
             remainingIterations -= 1
         }
@@ -232,9 +234,29 @@ public struct OpenAIResponsesStreamingClient: Sendable {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
+                    var completedOutputItems: [Int: OpenAIResponseOutputItem] = [:]
+
                     for try await event in transport.streamResponse(request) {
-                        for projectedEvent in try event.projectedAgentStreamEvents() {
-                            continuation.yield(projectedEvent)
+                        switch event {
+                        case .outputItemDone(let done):
+                            completedOutputItems[done.outputIndex] = done.item
+
+                        case .responseCompleted(let response):
+                            let effectiveResponse = withFallbackOutput(
+                                response,
+                                fallbackItemsByIndex: completedOutputItems
+                            )
+                            completedOutputItems.removeAll()
+                            for projectedEvent in try OpenAIResponseStreamEvent
+                                .responseCompleted(effectiveResponse)
+                                .projectedAgentStreamEvents() {
+                                continuation.yield(projectedEvent)
+                            }
+
+                        default:
+                            for projectedEvent in try event.projectedAgentStreamEvents() {
+                                continuation.yield(projectedEvent)
+                            }
                         }
                     }
                     continuation.finish()
@@ -284,6 +306,7 @@ private extension OpenAIResponsesClient {
 
                         var nextRequest: OpenAIResponseRequest?
                         var didComplete = false
+                        var completedOutputItems: [Int: OpenAIResponseOutputItem] = [:]
 
                         for try await event in transport.streamResponse(currentRequest) {
                             switch event {
@@ -292,6 +315,9 @@ private extension OpenAIResponsesClient {
 
                             case .outputTextDelta(let delta):
                                 continuation.yield(.textDelta(delta.delta))
+
+                            case .outputItemDone(let done):
+                                completedOutputItems[done.outputIndex] = done.item
 
                             case .responseFailed(let response):
                                 throw OpenAITransportError.streamingResponseFailed(response.status)
@@ -307,7 +333,11 @@ private extension OpenAIResponsesClient {
                                 )
 
                             case .responseCompleted(let response):
-                                let projection = try response.projectedOutput()
+                                let effectiveResponse = withFallbackOutput(
+                                    response,
+                                    fallbackItemsByIndex: completedOutputItems
+                                )
+                                let projection = try effectiveResponse.projectedOutput()
                                 for projectedEvent in projection.agentStreamEvents() {
                                     continuation.yield(projectedEvent)
                                 }
@@ -317,7 +347,7 @@ private extension OpenAIResponsesClient {
                                 } else {
                                     nextRequest = try await followUpRequest(
                                         from: currentRequest,
-                                        response: response,
+                                        response: effectiveResponse,
                                         toolCalls: projection.toolCalls,
                                         using: executor
                                     )
@@ -378,14 +408,32 @@ private extension OpenAIResponsesClient {
         using executor: ToolExecutor
     ) async throws -> OpenAIResponseRequest {
         let followUpItems = try await makeFunctionCallOutputs(for: toolCalls, using: executor)
-        return OpenAIResponseRequest(
-            model: request.model,
-            input: followUpItems,
-            previousResponseID: response.id,
-            stream: request.stream,
-            tools: request.tools,
-            toolChoice: nil
-        )
+        switch followUpStrategy {
+        case .previousResponseID:
+            return OpenAIResponseRequest(
+                model: request.model,
+                input: followUpItems,
+                instructions: request.instructions,
+                previousResponseID: response.id,
+                store: request.store,
+                promptCacheKey: request.promptCacheKey,
+                stream: request.stream,
+                tools: request.tools,
+                toolChoice: nil
+            )
+
+        case .replayInput:
+            return OpenAIResponseRequest(
+                model: request.model,
+                input: request.input + replayedInputItems(from: response.output) + followUpItems,
+                instructions: request.instructions,
+                store: request.store,
+                promptCacheKey: request.promptCacheKey,
+                stream: request.stream,
+                tools: request.tools,
+                toolChoice: nil
+            )
+        }
     }
 
     func functionCallOutputValue(from result: ToolResult) throws -> OpenAIFunctionCallOutputValue {
@@ -397,6 +445,54 @@ private extension OpenAIResponsesClient {
             return .text(String(decoding: data, as: UTF8.self))
         }
     }
+}
+
+private func replayedInputItems(from output: [OpenAIResponseOutputItem]) -> [OpenAIResponseInputItem] {
+    output.map { item in
+        switch item {
+        case .message(let message):
+            .message(
+                OpenAIInputMessage(
+                    role: message.role,
+                    content: message.content.map { content in
+                        switch content {
+                        case .outputText(let text):
+                            .outputText(text)
+                        case .refusal(let refusal):
+                            .refusal(refusal)
+                        }
+                    }
+                )
+            )
+        case .functionCall(let functionCall):
+            .functionCall(
+                OpenAIResponseFunctionCall(
+                    callID: functionCall.callID,
+                    name: functionCall.name,
+                    arguments: functionCall.arguments
+                )
+            )
+        }
+    }
+}
+
+private func withFallbackOutput(
+    _ response: OpenAIResponse,
+    fallbackItemsByIndex: [Int: OpenAIResponseOutputItem]
+) -> OpenAIResponse {
+    guard response.output.isEmpty, !fallbackItemsByIndex.isEmpty else {
+        return response
+    }
+
+    let output = fallbackItemsByIndex
+        .sorted { $0.key < $1.key }
+        .map(\.value)
+
+    return OpenAIResponse(
+        id: response.id,
+        status: response.status,
+        output: output
+    )
 }
 
 private indirect enum OpenAIToolJSONValue {
