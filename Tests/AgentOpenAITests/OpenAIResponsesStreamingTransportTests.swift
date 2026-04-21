@@ -245,6 +245,29 @@ struct OpenAIResponsesStreamingTransportTests {
         try await Task.sleep(for: .milliseconds(50))
         #expect(await session.wasCancelled)
     }
+
+    @Test func streaming_transport_throws_typed_error_for_truncated_payloads() async {
+        let session = StubLineStreamingSession(
+            lines: [
+                "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_123\"",
+                "",
+            ]
+        )
+        let transport = URLSessionOpenAIResponsesStreamingTransport(
+            configuration: .init(apiKey: "sk-test"),
+            session: session
+        )
+
+        await #expect(throws: AgentStreamError.eventDecodingFailed(provider: .openAI)) {
+            var iterator = transport.streamResponse(
+                OpenAIResponseRequest(
+                    model: "gpt-5.4",
+                    input: [.message(.init(role: .user, content: [.inputText("hello")]))]
+                )
+            ).makeAsyncIterator()
+            _ = try await iterator.next()
+        }
+    }
 }
 
 private actor StubLineStreamingSession: OpenAIHTTPLineStreamingSession {

@@ -110,7 +110,11 @@ public actor FileAgentStore: AgentSessionStore, AgentTurnStore {
             .sorted { $0.id < $1.id }
             .map(AgentPersistenceMapper.sessionRecord(from:))
         let data = try encoder.encode(records)
-        try data.write(to: sessionsFileURL, options: .atomic)
+        do {
+            try data.write(to: sessionsFileURL, options: .atomic)
+        } catch {
+            throw AgentPersistenceError.writeFailed(fileName: sessionsFileURL.lastPathComponent)
+        }
     }
 
     private func persistTurns() throws {
@@ -123,7 +127,11 @@ public actor FileAgentStore: AgentSessionStore, AgentTurnStore {
                     .map(AgentPersistenceMapper.turnRecord(from:))
             }
         let data = try encoder.encode(records)
-        try data.write(to: turnsFileURL, options: .atomic)
+        do {
+            try data.write(to: turnsFileURL, options: .atomic)
+        } catch {
+            throw AgentPersistenceError.writeFailed(fileName: turnsFileURL.lastPathComponent)
+        }
     }
 
     private func nextSequenceNumber(forSessionID sessionID: String) -> Int {
@@ -160,8 +168,18 @@ public actor FileAgentStore: AgentSessionStore, AgentTurnStore {
             return [:]
         }
 
-        let data = try Data(contentsOf: fileURL)
-        let records = try decoder.decode([AgentSessionRecord].self, from: data)
+        let data: Data
+        do {
+            data = try Data(contentsOf: fileURL)
+        } catch {
+            throw AgentPersistenceError.invalidPersistedData(fileName: fileURL.lastPathComponent)
+        }
+        let records: [AgentSessionRecord]
+        do {
+            records = try decoder.decode([AgentSessionRecord].self, from: data)
+        } catch {
+            throw AgentPersistenceError.invalidPersistedData(fileName: fileURL.lastPathComponent)
+        }
         return Dictionary(
             uniqueKeysWithValues: records.map { record in
                 let session = AgentPersistenceMapper.session(from: record)
@@ -178,8 +196,18 @@ public actor FileAgentStore: AgentSessionStore, AgentTurnStore {
             return [:]
         }
 
-        let data = try Data(contentsOf: fileURL)
-        let records = try decoder.decode([AgentTurnRecord].self, from: data)
+        let data: Data
+        do {
+            data = try Data(contentsOf: fileURL)
+        } catch {
+            throw AgentPersistenceError.invalidPersistedData(fileName: fileURL.lastPathComponent)
+        }
+        let records: [AgentTurnRecord]
+        do {
+            records = try decoder.decode([AgentTurnRecord].self, from: data)
+        } catch {
+            throw AgentPersistenceError.invalidPersistedData(fileName: fileURL.lastPathComponent)
+        }
         return Dictionary(grouping: records.map(AgentPersistenceMapper.turn(from:))) { turn in
             turn.sessionID
         }

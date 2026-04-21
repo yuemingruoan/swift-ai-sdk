@@ -1,0 +1,30 @@
+{
+  "id": "resp_123",
+  "status": "completed",
+  "output": [
+    {
+      "type": "message",
+      "id": "msg_123",
+      "status": "completed",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "hello"
+        },
+        {
+          "type": "refusal",
+          "refusal": "cannot do that"
+        }
+      ]
+    },
+    {
+      "type": "function_call",
+      "id": "fc_123",
+      "call_id": "call_123",
+      "name": "lookup_weather",
+      "arguments": "{\"city\":\"Paris\"}",
+      "status": "completed"
+    }
+  ]
+}

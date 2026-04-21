@@ -1,0 +1,49 @@
+{
+  "model": "gpt-5.4",
+  "input": [
+    {
+      "type": "message",
+      "role": "developer",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "be concise"
+        }
+      ]
+    },
+    {
+      "type": "message",
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Hello"
+        },
+        {
+          "type": "input_image",
+          "image_url": "https://example.com/cat.png"
+        }
+      ]
+    }
+  ],
+  "previous_response_id": "resp_123",
+  "tools": [
+    {
+      "type": "function",
+      "name": "lookup_weather",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "city": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "city"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "tool_choice": "required"
+}

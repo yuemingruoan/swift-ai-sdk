@@ -13,8 +13,10 @@ provider-neutral core and provider-specific adapters layered on top.
 
 ## Status
 
-- the first public SwiftPM tag is planned as `0.1.0`
+- `v0.1.0` was released on 2026-04-21 as the first public SwiftPM tag
+- `main` is the active development line for follow-up work such as `v0.1.1`
 - the repository does not have an installed external user base yet, so `0.x` releases may make breaking API changes while the public surface is still being tightened
+- breaking changes during `0.x` should be called out explicitly in `CHANGELOG.md` and GitHub Release notes
 - the current baseline is production-oriented infrastructure, not a feature-complete end-user SDK
 
 ### What works today
@@ -33,6 +35,17 @@ provider-neutral core and provider-specific adapters layered on top.
 - policy or middleware interception beyond observational executor hooks
 - a broader host-adapter matrix beyond the current examples
 
+### Provider Feature Matrix
+
+| Capability | OpenAI | Anthropic |
+| --- | --- | --- |
+| Request / response | Yes | Yes |
+| Streaming | Yes, SSE Responses streaming | Not yet |
+| Realtime | Yes | Not yet |
+| Tool loop | Yes | Yes |
+| Auth helpers | Yes, ChatGPT/Codex-style authenticated transports | Not yet |
+| Transport customization | Yes, shared HTTP transport options | Yes, shared HTTP transport options |
+
 ## Modules
 
 | Module | Purpose | Layer |
@@ -47,7 +60,7 @@ provider-neutral core and provider-specific adapters layered on top.
 
 ## Installation
 
-After `0.1.0` is published:
+`v0.1.0` is the current public SwiftPM baseline:
 
 ```swift
 dependencies: [
@@ -161,7 +174,8 @@ cd Examples/AppleHostExample && swift build --target AppleHostExample
 
 - public API entrypoints now use Swift-style doc comments
 - the documented surface covers both high-level APIs and lower-level builders, request models, and transports
-- the release checklist for the first public tag lives in [docs/RELEASING.md](docs/RELEASING.md)
+- release governance and tag conventions live in [docs/RELEASING.md](docs/RELEASING.md)
+- forward-looking version milestones live in [ROADMAP.md](ROADMAP.md)
 
 ## Validation
 

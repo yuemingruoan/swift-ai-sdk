@@ -1,8 +1,36 @@
+import AgentCore
 import AgentOpenAI
 import Foundation
 import Testing
 
 struct OpenAIURLSessionTransportTests {
+    @Test func requestBuilder_applies_shared_transport_configuration() throws {
+        let builder = OpenAIResponsesRequestBuilder(
+            configuration: .init(
+                apiKey: "sk-test",
+                transport: .init(
+                    timeoutInterval: 12,
+                    additionalHeaders: ["X-Test-Header": "fixture"],
+                    userAgent: "swift-ai-sdk-tests/2.0",
+                    requestID: "req_openai_123"
+                )
+            )
+        )
+        let request = try builder.makeURLRequest(
+            for: OpenAIResponseRequest(
+                model: "gpt-5.4",
+                input: [
+                    .message(.init(role: .user, content: [.inputText("hello")])),
+                ]
+            )
+        )
+
+        #expect(request.timeoutInterval == 12)
+        #expect(request.value(forHTTPHeaderField: "User-Agent") == "swift-ai-sdk-tests/2.0")
+        #expect(request.value(forHTTPHeaderField: "X-Test-Header") == "fixture")
+        #expect(request.value(forHTTPHeaderField: "X-Request-Id") == "req_openai_123")
+    }
+
     @Test func requestBuilder_sets_custom_user_agent_header() throws {
         let builder = OpenAIResponsesRequestBuilder(
             configuration: .init(
@@ -129,7 +157,7 @@ struct OpenAIURLSessionTransportTests {
             session: session
         )
 
-        await #expect(throws: OpenAITransportError.unsuccessfulStatusCode(500)) {
+        await #expect(throws: AgentProviderError.unsuccessfulResponse(provider: .openAI, statusCode: 500)) {
             try await transport.createResponse(
                 OpenAIResponseRequest(
                     model: "gpt-5.4",
@@ -137,6 +165,62 @@ struct OpenAIURLSessionTransportTests {
                 )
             )
         }
+    }
+
+    @Test func transport_retries_retryable_status_codes_using_shared_retry_policy() async throws {
+        let session = SequencedHTTPSession(
+            responses: [
+                (
+                    """
+                    {"error":"busy"}
+                    """.data(using: .utf8)!,
+                    HTTPURLResponse(
+                        url: URL(string: "https://api.openai.com/v1/responses")!,
+                        statusCode: 503,
+                        httpVersion: nil,
+                        headerFields: nil
+                    )!
+                ),
+                (
+                    """
+                    {
+                      "id":"resp_123",
+                      "status":"completed",
+                      "output":[]
+                    }
+                    """.data(using: .utf8)!,
+                    HTTPURLResponse(
+                        url: URL(string: "https://api.openai.com/v1/responses")!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: nil
+                    )!
+                ),
+            ]
+        )
+        let transport = URLSessionOpenAIResponsesTransport(
+            configuration: .init(
+                apiKey: "sk-test",
+                transport: .init(
+                    retryPolicy: .init(
+                        maxAttempts: 2,
+                        backoff: .none,
+                        retryableStatusCodes: [503]
+                    )
+                )
+            ),
+            session: session
+        )
+
+        let response = try await transport.createResponse(
+            OpenAIResponseRequest(
+                model: "gpt-5.4",
+                input: [.message(.init(role: .user, content: [.inputText("hello")]))]
+            )
+        )
+
+        #expect(response.id == "resp_123")
+        #expect(await session.requestCount == 2)
     }
 }
 
@@ -153,5 +237,22 @@ private actor StubHTTPSession: OpenAIHTTPSession {
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         lastRequest = request
         return (data, response)
+    }
+}
+
+private actor SequencedHTTPSession: OpenAIHTTPSession {
+    private let responses: [(Data, URLResponse)]
+    private var index = 0
+    private(set) var requestCount = 0
+
+    init(responses: [(Data, URLResponse)]) {
+        self.responses = responses
+    }
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        requestCount += 1
+        let response = responses[min(index, responses.count - 1)]
+        index += 1
+        return response
     }
 }

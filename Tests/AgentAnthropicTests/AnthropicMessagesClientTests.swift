@@ -4,6 +4,32 @@ import Foundation
 import Testing
 
 struct AnthropicMessagesClientTests {
+    @Test func request_builder_applies_shared_transport_configuration() throws {
+        let builder = AnthropicMessagesRequestBuilder(
+            configuration: .init(
+                apiKey: "sk-ant-test",
+                transport: .init(
+                    timeoutInterval: 8,
+                    additionalHeaders: ["X-Test-Header": "fixture"],
+                    userAgent: "swift-ai-sdk-tests/2.0",
+                    requestID: "req_anthropic_123"
+                )
+            )
+        )
+        let request = try builder.makeURLRequest(
+            for: AnthropicMessagesRequest(
+                model: "claude-sonnet-4-20250514",
+                maxTokens: 1024,
+                messages: [.userText("hello")]
+            )
+        )
+
+        #expect(request.timeoutInterval == 8)
+        #expect(request.value(forHTTPHeaderField: "User-Agent") == "swift-ai-sdk-tests/2.0")
+        #expect(request.value(forHTTPHeaderField: "X-Test-Header") == "fixture")
+        #expect(request.value(forHTTPHeaderField: "X-Request-Id") == "req_anthropic_123")
+    }
+
     @Test func request_builder_sets_custom_user_agent_header() throws {
         let builder = AnthropicMessagesRequestBuilder(
             configuration: .init(
@@ -187,6 +213,66 @@ struct AnthropicMessagesClientTests {
             ),
         ])
     }
+
+    @Test func transport_retries_retryable_status_codes_using_shared_retry_policy() async throws {
+        let session = SequencedAnthropicHTTPSession(
+            responses: [
+                (
+                    """
+                    {"error":"busy"}
+                    """.data(using: .utf8)!,
+                    HTTPURLResponse(
+                        url: URL(string: "https://api.anthropic.com/v1/messages")!,
+                        statusCode: 503,
+                        httpVersion: nil,
+                        headerFields: nil
+                    )!
+                ),
+                (
+                    """
+                    {
+                      "id":"msg_123",
+                      "model":"claude-sonnet-4-20250514",
+                      "role":"assistant",
+                      "content":[{"type":"text","text":"hello"}],
+                      "stop_reason":"end_turn",
+                      "usage":{"input_tokens":10,"output_tokens":5}
+                    }
+                    """.data(using: .utf8)!,
+                    HTTPURLResponse(
+                        url: URL(string: "https://api.anthropic.com/v1/messages")!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: nil
+                    )!
+                ),
+            ]
+        )
+        let transport = URLSessionAnthropicMessagesTransport(
+            configuration: .init(
+                apiKey: "sk-ant-test",
+                transport: .init(
+                    retryPolicy: .init(
+                        maxAttempts: 2,
+                        backoff: .none,
+                        retryableStatusCodes: [503]
+                    )
+                )
+            ),
+            session: session
+        )
+
+        let response = try await transport.createMessage(
+            AnthropicMessagesRequest(
+                model: "claude-sonnet-4-20250514",
+                maxTokens: 1024,
+                messages: [.userText("hello")]
+            )
+        )
+
+        #expect(response.id == "msg_123")
+        #expect(await session.requestCount == 2)
+    }
 }
 
 private actor StubAnthropicTransport: AnthropicMessagesTransport {
@@ -222,4 +308,21 @@ private actor StubWeatherTransport: RemoteToolTransport {
 private func jsonObject(for value: some Encodable) throws -> [String: Any] {
     let data = try JSONEncoder().encode(value)
     return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+}
+
+private actor SequencedAnthropicHTTPSession: AnthropicHTTPSession {
+    private let responses: [(Data, URLResponse)]
+    private var index = 0
+    private(set) var requestCount = 0
+
+    init(responses: [(Data, URLResponse)]) {
+        self.responses = responses
+    }
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        requestCount += 1
+        let response = responses[min(index, responses.count - 1)]
+        index += 1
+        return response
+    }
 }

@@ -76,6 +76,46 @@ struct FileAgentStoreTests {
         #expect(try await reloaded.session(id: "session-1") == nil)
         #expect(try await reloaded.turns(forSessionID: "session-1").isEmpty)
     }
+
+    @Test func init_throws_typed_error_for_invalid_sessions_json() throws {
+        let directoryURL = makeTemporaryDirectory()
+        try "{not valid json}".write(
+            to: directoryURL.appendingPathComponent("sessions.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        #expect(throws: AgentPersistenceError.invalidPersistedData(fileName: "sessions.json")) {
+            _ = try FileAgentStore(directoryURL: directoryURL)
+        }
+    }
+
+    @Test func init_throws_typed_error_for_empty_turns_file() throws {
+        let directoryURL = makeTemporaryDirectory()
+        try "".write(
+            to: directoryURL.appendingPathComponent("turns.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        #expect(throws: AgentPersistenceError.invalidPersistedData(fileName: "turns.json")) {
+            _ = try FileAgentStore(directoryURL: directoryURL)
+        }
+    }
+
+    @Test func init_preserves_corrupt_files_when_loading_fails() throws {
+        let directoryURL = makeTemporaryDirectory()
+        let corruptContents = "{not valid json}"
+        let sessionsURL = directoryURL.appendingPathComponent("sessions.json")
+        try corruptContents.write(to: sessionsURL, atomically: true, encoding: .utf8)
+
+        #expect(throws: AgentPersistenceError.invalidPersistedData(fileName: "sessions.json")) {
+            _ = try FileAgentStore(directoryURL: directoryURL)
+        }
+
+        let reloadedContents = try String(contentsOf: sessionsURL, encoding: .utf8)
+        #expect(reloadedContents == corruptContents)
+    }
 }
 
 private func makeTemporaryDirectory() -> URL {

@@ -13,8 +13,10 @@ provider-neutral，上层再叠加不同 provider 的 adapter。
 
 ## 当前状态
 
-- 首个公开 SwiftPM tag 计划为 `0.1.0`
+- `v0.1.0` 已于 2026-04-21 发布，作为首个公开 SwiftPM tag
+- `main` 是后续开发线，用于承接 `v0.1.1` 及之后的工作
 - 当前还没有既有外部安装用户，因此 `0.x` 阶段允许继续做破坏性 API 调整
+- `0.x` 阶段如果发生 breaking change，应在 `CHANGELOG.md` 和 GitHub Release Notes 中明确写清
 - 当前仓库已经是偏生产可用的基础设施基线，但还不是面向终端开发者的完整成品 SDK
 
 ### 已经具备的能力
@@ -33,6 +35,17 @@ provider-neutral，上层再叠加不同 provider 的 adapter。
 - 超出观测型 executor hook 的策略/中间件拦截能力
 - 更丰富的宿主 adapter 矩阵
 
+### Provider Feature Matrix
+
+| 能力 | OpenAI | Anthropic |
+| --- | --- | --- |
+| request / response | 已支持 | 已支持 |
+| streaming | 已支持，基于 SSE Responses streaming | 暂未支持 |
+| realtime | 已支持 | 暂未支持 |
+| tool loop | 已支持 | 已支持 |
+| auth helpers | 已支持，包含 ChatGPT/Codex 风格 authenticated transport | 暂未支持 |
+| transport customization | 已支持，共享 HTTP transport 配置项 | 已支持，共享 HTTP transport 配置项 |
+
 ## 模块一览
 
 | 模块 | 作用 | 层级 |
@@ -47,7 +60,7 @@ provider-neutral，上层再叠加不同 provider 的 adapter。
 
 ## 安装
 
-`0.1.0` 发布后：
+`v0.1.0` 是当前公开 SwiftPM 基线：
 
 ```swift
 dependencies: [
@@ -160,7 +173,8 @@ cd Examples/AppleHostExample && swift build --target AppleHostExample
 
 - 公开 API 已开始补齐符合 Swift 风格的文档注释
 - 注释覆盖范围包括高层入口 API，以及底层 builder、request model、transport
-- 首个公开 tag 的发版清单见 [docs/RELEASING.md](docs/RELEASING.md)
+- 发版治理和 tag 约定见 [docs/RELEASING.md](docs/RELEASING.md)
+- 后续版本路线图见 [ROADMAP.md](ROADMAP.md)
 
 ## 验证
 
