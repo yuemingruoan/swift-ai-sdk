@@ -30,6 +30,11 @@ playground.xcworkspace
 # .swiftpm
 
 .build/
+.swiftpm/
+.vscode/
+request.folder/
+docs/superpowers/plans/
+.DS_Store
 
 # CocoaPods
 #
