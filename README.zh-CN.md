@@ -258,6 +258,7 @@ cd Examples/AppleHostExample && swift build --target AppleHostExample
 
 ## 文档
 
+- 当前有效文档集合的索引见 [docs/README.md](docs/README.md)
 - 公开 API 已开始补齐符合 Swift 风格的文档注释
 - 注释覆盖范围包括高层入口 API，以及底层 builder、request model、transport
 - README 现在明确列出了 SDK-facing 错误分层，以及共享 HTTP transport 配置面

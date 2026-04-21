@@ -261,6 +261,7 @@ cd Examples/AppleHostExample && swift build --target AppleHostExample
 
 ## Documentation
 
+- the active docs set is indexed in [docs/README.md](docs/README.md)
 - public API entrypoints now use Swift-style doc comments
 - the documented surface covers both high-level APIs and lower-level builders, request models, and transports
 - the README now documents the SDK-facing error taxonomy and the shared HTTP transport configuration surface

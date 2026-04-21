@@ -15,6 +15,7 @@ and the project follows semantic versioning for the SwiftPM version surface.
 - extended shared transport configuration coverage into authenticated OpenAI-compatible Responses HTTP/SSE transports and the header-oriented subset of the authenticated WebSocket builder
 - removed the stale `OpenAIRealtimeMessageConversionError` surface and kept realtime message-part failures on the shared `AgentDecodingError` path
 - added a host-facing error handling cookbook and a transport family matrix in both English and Simplified Chinese
+- removed the stale `SDK_IMPROVEMENT_PLAN.md` archive file and added `docs/README.md` as the active documentation index for release preparation
 
 ## [v0.1.0] - 2026-04-21
 
