@@ -1,13 +1,16 @@
+import AgentCore
 import AgentOpenAI
 import CryptoKit
 import Foundation
 
+/// Persisted PKCE/session state used while a browser-based OAuth flow is in progress.
 public struct OpenAIChatGPTBrowserAuthorizationSessionData: Equatable, Sendable {
     public var sessionID: String
     public var state: String
     public var codeVerifier: String
     public var codeChallenge: String
 
+    /// Creates stored browser-session state for an OAuth authorization attempt.
     public init(
         sessionID: String,
         state: String,
@@ -20,6 +23,7 @@ public struct OpenAIChatGPTBrowserAuthorizationSessionData: Equatable, Sendable 
         self.codeChallenge = codeChallenge
     }
 
+    /// Generates browser-session state using Codex CLI-compatible PKCE and state lengths.
     public static func generate() -> Self {
         let verifierBytes = randomBytes(count: 64)
         let codeVerifier = base64URLEncode(verifierBytes)
@@ -33,6 +37,7 @@ public struct OpenAIChatGPTBrowserAuthorizationSessionData: Equatable, Sendable 
     }
 }
 
+/// Browser OAuth flow for ChatGPT/Codex-compatible authentication.
 public final class OpenAIChatGPTBrowserFlow: OpenAIOAuthFlow, @unchecked Sendable {
     private let configuration: OpenAIChatGPTOAuthConfiguration
     private let session: any OpenAIHTTPSession
@@ -40,6 +45,7 @@ public final class OpenAIChatGPTBrowserFlow: OpenAIOAuthFlow, @unchecked Sendabl
     private let clock: @Sendable () -> Date
     private let store = OpenAIChatGPTBrowserSessionStore()
 
+    /// Creates a browser OAuth flow implementation.
     public init(
         configuration: OpenAIChatGPTOAuthConfiguration = .init(),
         session: any OpenAIHTTPSession = URLSession.shared,
@@ -54,12 +60,13 @@ public final class OpenAIChatGPTBrowserFlow: OpenAIOAuthFlow, @unchecked Sendabl
         self.clock = clock
     }
 
+    /// Starts a browser-based OAuth session and returns the authorization URL to open externally.
     public func startAuthorization(method: OpenAIOAuthMethod) async throws -> OpenAIOAuthSession {
         guard method == .browser else {
-            throw OpenAIChatGPTOAuthError.unsupportedAuthorizationMethod(method)
+            throw AgentAuthError.unsupportedAuthorizationMethod(String(describing: method))
         }
         guard let redirectURL = configuration.browserRedirectURL else {
-            throw OpenAIChatGPTOAuthError.missingBrowserRedirectURL
+            throw AgentAuthError.missingBrowserRedirectURL
         }
 
         let sessionData = sessionFactory()
@@ -86,7 +93,7 @@ public final class OpenAIChatGPTBrowserFlow: OpenAIOAuthFlow, @unchecked Sendabl
         }
 
         guard let authorizationURL = components?.url else {
-            throw OpenAIChatGPTOAuthError.invalidResponse
+            throw AgentAuthError.invalidConfiguration("authorization_url")
         }
 
         return OpenAIOAuthSession(
@@ -99,7 +106,7 @@ public final class OpenAIChatGPTBrowserFlow: OpenAIOAuthFlow, @unchecked Sendabl
     }
 
     public func completeAuthorization(sessionID _: String) async throws -> OpenAIAuthTokens {
-        throw OpenAIChatGPTOAuthError.callbackURLRequired
+        throw AgentAuthError.callbackURLRequired
     }
 
     public func completeAuthorization(
@@ -107,10 +114,10 @@ public final class OpenAIChatGPTBrowserFlow: OpenAIOAuthFlow, @unchecked Sendabl
         callbackURL: URL
     ) async throws -> OpenAIAuthTokens {
         guard let redirectURL = configuration.browserRedirectURL else {
-            throw OpenAIChatGPTOAuthError.missingBrowserRedirectURL
+            throw AgentAuthError.missingBrowserRedirectURL
         }
         guard let sessionData = await store.load(sessionID: sessionID) else {
-            throw OpenAIChatGPTOAuthError.unknownAuthorizationSession
+            throw AgentAuthError.unknownAuthorizationSession
         }
 
         do {
@@ -118,17 +125,17 @@ public final class OpenAIChatGPTBrowserFlow: OpenAIOAuthFlow, @unchecked Sendabl
             let values = Dictionary(uniqueKeysWithValues: queryItems.map { ($0.name, $0.value ?? "") })
 
             if let errorCode = values["error"], !errorCode.isEmpty {
-                throw OpenAIChatGPTOAuthError.callbackError(
+                throw AgentAuthError.callbackError(
                     code: errorCode,
                     description: values["error_description"]
                 )
             }
 
             guard values["state"] == sessionData.state else {
-                throw OpenAIChatGPTOAuthError.stateMismatch
+                throw AgentAuthError.stateMismatch
             }
             guard let code = values["code"], !code.isEmpty else {
-                throw OpenAIChatGPTOAuthError.missingAuthorizationCode
+                throw AgentAuthError.missingAuthorizationCode
             }
 
             var request = URLRequest(url: configuration.tokenURL)

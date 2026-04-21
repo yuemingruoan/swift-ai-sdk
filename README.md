@@ -174,6 +174,7 @@ cd Examples/AppleHostExample && swift build --target AppleHostExample
 
 - public API entrypoints now use Swift-style doc comments
 - the documented surface covers both high-level APIs and lower-level builders, request models, and transports
+- SDK-facing error taxonomy now covers provider, transport, decoding, auth, stream, and persistence failure classes
 - release governance and tag conventions live in [docs/RELEASING.md](docs/RELEASING.md)
 - forward-looking version milestones live in [ROADMAP.md](ROADMAP.md)
 

@@ -1,5 +1,6 @@
 import AgentOpenAIAuth
 import AgentOpenAI
+import AgentCore
 import Foundation
 import Testing
 
@@ -29,7 +30,7 @@ struct OpenAIAuthCompatibilityTests {
             tokens: OpenAIAuthTokens(accessToken: "access-token")
         )
 
-        await #expect(throws: OpenAITokenProviderError.refreshUnsupported) {
+        await #expect(throws: AgentAuthError.refreshUnsupported) {
             _ = try await provider.refreshTokens(reason: .unauthorized)
         }
     }
@@ -269,7 +270,7 @@ struct OpenAIAuthCompatibilityTests {
             session: session
         )
 
-        await #expect(throws: OpenAITokenProviderError.refreshUnsupported) {
+        await #expect(throws: AgentAuthError.refreshUnsupported) {
             _ = try await transport.createResponse(
                 OpenAIResponseRequest(
                     model: "gpt-5.4",
@@ -392,7 +393,7 @@ struct OpenAIAuthCompatibilityTests {
             refresher: StaticTokenRefresher()
         )
 
-        await #expect(throws: OpenAITokenProviderError.missingTokens) {
+        await #expect(throws: AgentAuthError.missingCredentials("tokens")) {
             _ = try await provider.currentTokens()
         }
     }
@@ -562,7 +563,7 @@ struct OpenAIAuthCompatibilityTests {
     @Test func chatgpt_token_refresher_requires_refresh_token() async throws {
         let refresher = OpenAIChatGPTTokenRefresher()
 
-        await #expect(throws: OpenAIChatGPTOAuthError.missingRefreshToken) {
+        await #expect(throws: AgentAuthError.missingCredentials("refresh_token")) {
             _ = try await refresher.refreshTokens(
                 current: OpenAIAuthTokens(accessToken: "access-token", refreshToken: nil),
                 reason: .unauthorized
@@ -707,7 +708,7 @@ struct OpenAIAuthCompatibilityTests {
 
         let started = try await flow.startAuthorization(method: .browser)
 
-        await #expect(throws: OpenAIChatGPTOAuthError.stateMismatch) {
+        await #expect(throws: AgentAuthError.stateMismatch) {
             _ = try await flow.completeAuthorization(
                 sessionID: started.sessionID,
                 callbackURL: URL(string: "http://localhost:1455/auth/callback?code=abc123&state=wrong-state")!
@@ -873,3 +874,35 @@ private func base64URLEncoded(_ data: Data) -> String {
         .replacingOccurrences(of: "/", with: "_")
         .replacingOccurrences(of: "=", with: "")
 }
+    @Test func authenticated_request_builder_requires_chatgpt_account_id_for_codex_profile() async throws {
+        let provider = OpenAIExternalTokenProvider(
+            tokens: OpenAIAuthTokens(accessToken: "access-token")
+        )
+        let builder = OpenAIAuthenticatedResponsesRequestBuilder(
+            configuration: .init(),
+            tokenProvider: provider
+        )
+
+        await #expect(throws: AgentAuthError.missingCredentials("chatgpt_account_id")) {
+            _ = try await builder.makeURLRequest(
+                for: OpenAIResponseRequest(
+                    model: "gpt-5.4",
+                    input: [.message(.init(role: .user, content: [.inputText("hello")]))]
+                )
+            )
+        }
+    }
+
+    @Test func authenticated_websocket_request_builder_requires_chatgpt_account_id_for_codex_profile() async throws {
+        let provider = OpenAIExternalTokenProvider(
+            tokens: OpenAIAuthTokens(accessToken: "access-token")
+        )
+        let builder = OpenAIAuthenticatedResponsesWebSocketRequestBuilder(
+            configuration: .init(),
+            tokenProvider: provider
+        )
+
+        await #expect(throws: AgentAuthError.missingCredentials("chatgpt_account_id")) {
+            _ = try await builder.makeURLRequest()
+        }
+    }

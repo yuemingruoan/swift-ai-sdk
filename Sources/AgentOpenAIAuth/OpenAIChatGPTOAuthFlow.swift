@@ -1,6 +1,8 @@
+import AgentCore
 import AgentOpenAI
 import Foundation
 
+/// Legacy OAuth-flow-specific errors retained for source compatibility with older call sites.
 public enum OpenAIChatGPTOAuthError: Error, Equatable, Sendable {
     case unsupportedAuthorizationMethod(OpenAIOAuthMethod)
     case unknownAuthorizationSession
@@ -15,6 +17,7 @@ public enum OpenAIChatGPTOAuthError: Error, Equatable, Sendable {
     case deviceCodeTimedOut
 }
 
+/// Device-code OAuth flow for ChatGPT/Codex-compatible authentication.
 public final class OpenAIChatGPTDeviceCodeFlow: OpenAIOAuthFlow, @unchecked Sendable {
     private let configuration: OpenAIChatGPTOAuthConfiguration
     private let session: any OpenAIHTTPSession
@@ -22,6 +25,7 @@ public final class OpenAIChatGPTDeviceCodeFlow: OpenAIOAuthFlow, @unchecked Send
     private let clock: @Sendable () -> Date
     private let store = OpenAIChatGPTDeviceCodeSessionStore()
 
+    /// Creates a device-code OAuth flow implementation.
     public init(
         configuration: OpenAIChatGPTOAuthConfiguration = .init(),
         session: any OpenAIHTTPSession = URLSession.shared,
@@ -40,9 +44,10 @@ public final class OpenAIChatGPTDeviceCodeFlow: OpenAIOAuthFlow, @unchecked Send
         self.clock = clock
     }
 
+    /// Starts a device-code authorization session and returns the verification URL plus user code.
     public func startAuthorization(method: OpenAIOAuthMethod) async throws -> OpenAIOAuthSession {
         guard method == .deviceCode else {
-            throw OpenAIChatGPTOAuthError.unsupportedAuthorizationMethod(method)
+            throw AgentAuthError.unsupportedAuthorizationMethod(String(describing: method))
         }
 
         var request = URLRequest(url: configuration.deviceCodeUserCodeURL)
@@ -74,9 +79,10 @@ public final class OpenAIChatGPTDeviceCodeFlow: OpenAIOAuthFlow, @unchecked Send
         )
     }
 
+    /// Polls until the device-code session is approved and exchanges the authorization code for tokens.
     public func completeAuthorization(sessionID: String) async throws -> OpenAIAuthTokens {
         guard let deviceSession = await store.load(sessionID: sessionID) else {
-            throw OpenAIChatGPTOAuthError.unknownAuthorizationSession
+            throw AgentAuthError.unknownAuthorizationSession
         }
 
         do {
@@ -108,23 +114,33 @@ public final class OpenAIChatGPTDeviceCodeFlow: OpenAIOAuthFlow, @unchecked Send
 
             let (data, response) = try await session.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
-                throw OpenAIChatGPTOAuthError.invalidResponse
+                throw AgentTransportError.invalidResponse(provider: .openAI)
             }
 
             switch httpResponse.statusCode {
             case 200:
-                return try JSONDecoder().decode(
-                    DeviceCodeTokenPollingSuccessResponse.self,
-                    from: data
-                )
+                do {
+                    return try JSONDecoder().decode(
+                        DeviceCodeTokenPollingSuccessResponse.self,
+                        from: data
+                    )
+                } catch {
+                    throw AgentDecodingError.responseBody(
+                        provider: .openAI,
+                        description: String(describing: error)
+                    )
+                }
             case 403, 404:
                 await sleeper(deviceSession.interval)
             default:
-                throw OpenAIChatGPTOAuthError.unsuccessfulStatusCode(httpResponse.statusCode)
+                throw AgentProviderError.unsuccessfulResponse(
+                    provider: .openAI,
+                    statusCode: httpResponse.statusCode
+                )
             }
         }
 
-        throw OpenAIChatGPTOAuthError.deviceCodeTimedOut
+        throw AgentAuthError.deviceCodeTimedOut
     }
 
     private func exchangeAuthorizationCode(
@@ -236,10 +252,20 @@ func decodeResponse<T: Decodable>(
     response: URLResponse
 ) throws -> T {
     guard let httpResponse = response as? HTTPURLResponse else {
-        throw OpenAIChatGPTOAuthError.invalidResponse
+        throw AgentTransportError.invalidResponse(provider: .openAI)
     }
     guard (200..<300).contains(httpResponse.statusCode) else {
-        throw OpenAIChatGPTOAuthError.unsuccessfulStatusCode(httpResponse.statusCode)
+        throw AgentProviderError.unsuccessfulResponse(
+            provider: .openAI,
+            statusCode: httpResponse.statusCode
+        )
     }
-    return try JSONDecoder().decode(type, from: data)
+    do {
+        return try JSONDecoder().decode(type, from: data)
+    } catch {
+        throw AgentDecodingError.responseBody(
+            provider: .openAI,
+            description: String(describing: error)
+        )
+    }
 }

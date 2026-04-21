@@ -173,6 +173,7 @@ cd Examples/AppleHostExample && swift build --target AppleHostExample
 
 - 公开 API 已开始补齐符合 Swift 风格的文档注释
 - 注释覆盖范围包括高层入口 API，以及底层 builder、request model、transport
+- SDK-facing 错误模型现已覆盖 provider、transport、decoding、auth、stream 和 persistence 等失败类别
 - 发版治理和 tag 约定见 [docs/RELEASING.md](docs/RELEASING.md)
 - 后续版本路线图见 [ROADMAP.md](ROADMAP.md)
 

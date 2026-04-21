@@ -1,10 +1,13 @@
+import AgentCore
 import AgentOpenAI
 import Foundation
 
+/// Builder for authenticated OpenAI-compatible Responses WebSocket requests.
 public struct OpenAIAuthenticatedResponsesWebSocketRequestBuilder: Sendable {
     public let configuration: OpenAIAuthenticatedAPIConfiguration
     public let tokenProvider: any OpenAITokenProvider
 
+    /// Creates a WebSocket request builder for authenticated Responses endpoints.
     public init(
         configuration: OpenAIAuthenticatedAPIConfiguration,
         tokenProvider: any OpenAITokenProvider
@@ -13,6 +16,7 @@ public struct OpenAIAuthenticatedResponsesWebSocketRequestBuilder: Sendable {
         self.tokenProvider = tokenProvider
     }
 
+    /// Builds a WebSocket request using the provider's current tokens.
     public func makeURLRequest(clientRequestID: String? = nil) async throws -> URLRequest {
         let tokens = try await tokenProvider.currentTokens()
         return try makeURLRequest(tokens: tokens, clientRequestID: clientRequestID)
@@ -45,7 +49,7 @@ public struct OpenAIAuthenticatedResponsesWebSocketRequestBuilder: Sendable {
 
         if configuration.compatibilityProfile.requiresChatGPTCodexTransform {
             guard let accountID = tokens.chatGPTAccountID, !accountID.isEmpty else {
-                throw OpenAIAuthenticatedTransportError.missingChatGPTAccountID
+                throw AgentAuthError.missingCredentials("chatgpt_account_id")
             }
             headers["chatgpt-account-id"] = accountID
         }
@@ -59,10 +63,12 @@ public struct OpenAIAuthenticatedResponsesWebSocketRequestBuilder: Sendable {
     }
 }
 
+/// WebSocket transport for authenticated OpenAI-compatible Responses endpoints.
 public struct URLSessionOpenAIAuthenticatedResponsesWebSocketTransport: OpenAIResponsesStreamingTransport, Sendable {
     private let builder: OpenAIAuthenticatedResponsesWebSocketRequestBuilder
     private let session: any OpenAIWebSocketSession
 
+    /// Creates an authenticated Responses WebSocket transport.
     public init(
         configuration: OpenAIAuthenticatedAPIConfiguration,
         tokenProvider: any OpenAITokenProvider,
@@ -75,6 +81,7 @@ public struct URLSessionOpenAIAuthenticatedResponsesWebSocketTransport: OpenAIRe
         self.session = session
     }
 
+    /// Opens an authenticated Responses WebSocket stream.
     public func streamResponse(_ request: OpenAIResponseRequest) -> AsyncThrowingStream<OpenAIResponseStreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {

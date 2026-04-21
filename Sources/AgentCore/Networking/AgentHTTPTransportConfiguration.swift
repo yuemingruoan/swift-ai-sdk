@@ -1,5 +1,6 @@
 import Foundation
 
+/// Backoff strategies available to SDK-managed HTTP retry policies.
 public enum AgentHTTPBackoffStrategy: Equatable, Sendable {
     case none
     case constant(milliseconds: Int)
@@ -14,6 +15,7 @@ public enum AgentHTTPBackoffStrategy: Equatable, Sendable {
     }
 }
 
+/// Retry policy applied by SDK-managed HTTP transports.
 public struct AgentHTTPRetryPolicy: Equatable, Sendable {
     public var maxAttempts: Int
     public var backoff: AgentHTTPBackoffStrategy
@@ -38,6 +40,7 @@ public struct AgentHTTPRetryPolicy: Equatable, Sendable {
     }
 }
 
+/// Shared HTTP knobs for SDK transports that use `URLRequest` and `URLSession`.
 public struct AgentHTTPTransportConfiguration: Equatable, Sendable {
     public var timeoutInterval: TimeInterval?
     public var retryPolicy: AgentHTTPRetryPolicy

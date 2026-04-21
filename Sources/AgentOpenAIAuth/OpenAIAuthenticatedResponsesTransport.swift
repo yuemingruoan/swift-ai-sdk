@@ -1,3 +1,4 @@
+import AgentCore
 import AgentOpenAI
 import Foundation
 
@@ -31,7 +32,7 @@ public struct OpenAIAuthenticatedAPIConfiguration: Sendable {
     }
 }
 
-/// Errors thrown while building authenticated Requests transports.
+/// Legacy authenticated-transport-specific errors retained for source compatibility.
 public enum OpenAIAuthenticatedTransportError: Error, Equatable, Sendable {
     case missingChatGPTAccountID
 }
@@ -98,7 +99,7 @@ public struct OpenAIAuthenticatedResponsesRequestBuilder: Sendable {
 
         if configuration.compatibilityProfile.requiresChatGPTCodexTransform {
             guard let accountID = tokens.chatGPTAccountID, !accountID.isEmpty else {
-                throw OpenAIAuthenticatedTransportError.missingChatGPTAccountID
+                throw AgentAuthError.missingCredentials("chatgpt_account_id")
             }
             urlRequest.setValue(accountID, forHTTPHeaderField: "chatgpt-account-id")
             urlRequest.setValue("responses=experimental", forHTTPHeaderField: "OpenAI-Beta")
@@ -147,7 +148,7 @@ public struct URLSessionOpenAIAuthenticatedResponsesTransport: OpenAIResponsesTr
         )
         let (data, response) = try await session.data(for: initialRequest)
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw OpenAITransportError.invalidResponse
+            throw AgentTransportError.invalidResponse(provider: .openAI)
         }
 
         if httpResponse.statusCode == 401 {
@@ -166,12 +167,22 @@ public struct URLSessionOpenAIAuthenticatedResponsesTransport: OpenAIResponsesTr
 
     private func decodeResponse(data: Data, response: URLResponse) throws -> OpenAIResponse {
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw OpenAITransportError.invalidResponse
+            throw AgentTransportError.invalidResponse(provider: .openAI)
         }
         guard (200..<300).contains(httpResponse.statusCode) else {
-            throw OpenAITransportError.unsuccessfulStatusCode(httpResponse.statusCode)
+            throw AgentProviderError.unsuccessfulResponse(
+                provider: .openAI,
+                statusCode: httpResponse.statusCode
+            )
         }
-        return try JSONDecoder().decode(OpenAIResponse.self, from: data)
+        do {
+            return try JSONDecoder().decode(OpenAIResponse.self, from: data)
+        } catch {
+            throw AgentDecodingError.responseBody(
+                provider: .openAI,
+                description: String(describing: error)
+            )
+        }
     }
 }
 
@@ -232,7 +243,7 @@ public struct URLSessionOpenAIAuthenticatedResponsesStreamingTransport: OpenAIRe
         )
         let (lines, response) = try await session.streamLines(for: initialRequest)
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw OpenAITransportError.invalidResponse
+            throw AgentTransportError.invalidResponse(provider: .openAI)
         }
 
         if httpResponse.statusCode == 401 {
@@ -256,10 +267,13 @@ public struct URLSessionOpenAIAuthenticatedResponsesStreamingTransport: OpenAIRe
         continuation: AsyncThrowingStream<OpenAIResponseStreamEvent, Error>.Continuation
     ) async throws {
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw OpenAITransportError.invalidResponse
+            throw AgentTransportError.invalidResponse(provider: .openAI)
         }
         guard (200..<300).contains(httpResponse.statusCode) else {
-            throw OpenAITransportError.unsuccessfulStatusCode(httpResponse.statusCode)
+            throw AgentProviderError.unsuccessfulResponse(
+                provider: .openAI,
+                statusCode: httpResponse.statusCode
+            )
         }
 
         var dataLines: [String] = []
@@ -267,7 +281,7 @@ public struct URLSessionOpenAIAuthenticatedResponsesStreamingTransport: OpenAIRe
             let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
 
             if trimmedLine.isEmpty {
-                if let event = try decodeAuthenticatedSSEEvent(from: dataLines) {
+                if let event = try decodeAuthenticatedSSEEvent(from: dataLines, provider: .openAI) {
                     continuation.yield(event)
                 }
                 dataLines.removeAll(keepingCapacity: true)
@@ -275,7 +289,7 @@ public struct URLSessionOpenAIAuthenticatedResponsesStreamingTransport: OpenAIRe
             }
 
             if trimmedLine.hasPrefix("event:") {
-                if let event = try decodeAuthenticatedSSEEvent(from: dataLines) {
+                if let event = try decodeAuthenticatedSSEEvent(from: dataLines, provider: .openAI) {
                     continuation.yield(event)
                 }
                 dataLines.removeAll(keepingCapacity: true)
@@ -290,14 +304,15 @@ public struct URLSessionOpenAIAuthenticatedResponsesStreamingTransport: OpenAIRe
             }
         }
 
-        if let event = try decodeAuthenticatedSSEEvent(from: dataLines) {
+        if let event = try decodeAuthenticatedSSEEvent(from: dataLines, provider: .openAI) {
             continuation.yield(event)
         }
     }
 }
 
 private func decodeAuthenticatedSSEEvent(
-    from dataLines: [String]
+    from dataLines: [String],
+    provider: AgentProviderID
 ) throws -> OpenAIResponseStreamEvent? {
     guard !dataLines.isEmpty else {
         return nil
@@ -309,7 +324,12 @@ private func decodeAuthenticatedSSEEvent(
     }
 
     let jsonData = Data(data.utf8)
-    let envelope = try JSONDecoder().decode(OpenAIAuthenticatedStreamEventEnvelope.self, from: jsonData)
+    let envelope: OpenAIAuthenticatedStreamEventEnvelope
+    do {
+        envelope = try JSONDecoder().decode(OpenAIAuthenticatedStreamEventEnvelope.self, from: jsonData)
+    } catch {
+        throw AgentStreamError.eventDecodingFailed(provider: provider)
+    }
 
     switch envelope.type {
     case "response.created":

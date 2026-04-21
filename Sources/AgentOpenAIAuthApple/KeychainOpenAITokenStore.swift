@@ -2,17 +2,20 @@ import AgentOpenAIAuth
 import Foundation
 import Security
 
+/// Apple Keychain adapter errors that preserve underlying `Security` framework status codes.
 public enum KeychainOpenAITokenStoreError: Error, Equatable, Sendable {
     case unexpectedStatus(OSStatus)
     case invalidStoredData
 }
 
+/// Injectable wrapper around the `Security` framework functions used by the Keychain token store.
 public struct KeychainClient: Sendable {
     public var add: @Sendable ([CFString: Any]) async -> OSStatus
     public var update: @Sendable ([CFString: Any], [CFString: Any]) async -> OSStatus
     public var copyMatching: @Sendable ([CFString: Any], UnsafeMutablePointer<CFTypeRef?>?) async -> OSStatus
     public var delete: @Sendable ([CFString: Any]) async -> OSStatus
 
+    /// Creates a Keychain client from async wrappers around the underlying `Security` calls.
     public init(
         add: @escaping @Sendable ([CFString: Any]) async -> OSStatus,
         update: @escaping @Sendable ([CFString: Any], [CFString: Any]) async -> OSStatus,
@@ -25,6 +28,7 @@ public struct KeychainClient: Sendable {
         self.delete = delete
     }
 
+    /// Live Keychain client backed by `SecItemAdd`, `SecItemUpdate`, `SecItemCopyMatching`, and `SecItemDelete`.
     public static let live = Self(
         add: { query in
             SecItemAdd(query as CFDictionary, nil)
@@ -40,6 +44,7 @@ public struct KeychainClient: Sendable {
         }
     )
 
+    /// Test helper that creates a configurable in-memory-like Keychain client facade.
     static func mock(
         add: @escaping @Sendable ([CFString: Any]) async -> OSStatus = { _ in errSecSuccess },
         update: @escaping @Sendable ([CFString: Any], [CFString: Any]) async -> OSStatus = { _, _ in errSecSuccess },
@@ -55,12 +60,15 @@ public struct KeychainClient: Sendable {
     }
 }
 
+/// `OpenAITokenStore` implementation backed by the Apple Keychain.
 public struct KeychainOpenAITokenStore: OpenAITokenStore, Sendable {
+    /// Configuration for the Keychain item used to persist OpenAI auth tokens.
     public struct Configuration: Equatable, Sendable {
         public var service: String
         public var account: String
         public var accessGroup: String?
 
+        /// Creates Keychain item configuration for the token store.
         public init(
             service: String,
             account: String = "openai-auth-tokens",
@@ -75,6 +83,7 @@ public struct KeychainOpenAITokenStore: OpenAITokenStore, Sendable {
     public let configuration: Configuration
     let client: KeychainClient
 
+    /// Creates a Keychain-backed token store.
     public init(
         configuration: Configuration,
         client: KeychainClient = .live
@@ -83,6 +92,7 @@ public struct KeychainOpenAITokenStore: OpenAITokenStore, Sendable {
         self.client = client
     }
 
+    /// Loads the current token bundle from the configured Keychain item, if present.
     public func loadTokens() async throws -> OpenAIAuthTokens? {
         var query = baseQuery()
         query[kSecReturnData] = true
@@ -104,6 +114,7 @@ public struct KeychainOpenAITokenStore: OpenAITokenStore, Sendable {
         }
     }
 
+    /// Saves the supplied token bundle into the configured Keychain item, updating it when it already exists.
     public func saveTokens(_ tokens: OpenAIAuthTokens) async throws {
         let data = try encodeTokens(tokens)
         var lookupQuery = baseQuery()
@@ -132,6 +143,7 @@ public struct KeychainOpenAITokenStore: OpenAITokenStore, Sendable {
         }
     }
 
+    /// Clears the configured Keychain item when it exists.
     public func clearTokens() async throws {
         let status = await client.delete(baseQuery())
         guard status == errSecSuccess || status == errSecItemNotFound else {

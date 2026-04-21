@@ -1,11 +1,14 @@
+import AgentCore
 import AgentOpenAI
 import Foundation
 
+/// Token refresher that exchanges a stored ChatGPT/Codex refresh token for a fresh token bundle.
 public struct OpenAIChatGPTTokenRefresher: OpenAITokenRefresher, Sendable {
     public let configuration: OpenAIChatGPTOAuthConfiguration
     public let session: any OpenAIHTTPSession
     public let clock: @Sendable () -> Date
 
+    /// Creates a ChatGPT/Codex token refresher.
     public init(
         configuration: OpenAIChatGPTOAuthConfiguration = .init(),
         session: any OpenAIHTTPSession = URLSession.shared,
@@ -16,12 +19,13 @@ public struct OpenAIChatGPTTokenRefresher: OpenAITokenRefresher, Sendable {
         self.clock = clock
     }
 
+    /// Refreshes the supplied token bundle using its `refreshToken`.
     public func refreshTokens(
         current: OpenAIAuthTokens,
         reason _: OpenAITokenRefreshReason
     ) async throws -> OpenAIAuthTokens {
         guard let refreshToken = current.refreshToken, !refreshToken.isEmpty else {
-            throw OpenAIChatGPTOAuthError.missingRefreshToken
+            throw AgentAuthError.missingCredentials("refresh_token")
         }
 
         var request = URLRequest(url: configuration.tokenURL)

@@ -1,10 +1,12 @@
+import AgentCore
+
 /// Reason for requesting a fresh access token from a token provider.
 public enum OpenAITokenRefreshReason: Equatable, Sendable {
     case unauthorized
     case expired
 }
 
-/// Errors thrown by token providers used with authenticated transports.
+/// Legacy token-provider-specific errors retained for source compatibility.
 public enum OpenAITokenProviderError: Error, Equatable, Sendable {
     case refreshUnsupported
     case missingTokens
@@ -42,8 +44,8 @@ public struct OpenAIExternalTokenProvider: OpenAITokenProvider, Sendable {
     /// Always throws because this provider does not implement refresh.
     /// - Parameter reason: Reason the caller requested refreshed tokens.
     /// - Returns: Never returns successfully.
-    /// - Throws: ``OpenAITokenProviderError/refreshUnsupported``.
+    /// - Throws: ``AgentAuthError/refreshUnsupported``.
     public func refreshTokens(reason _: OpenAITokenRefreshReason) async throws -> OpenAIAuthTokens {
-        throw OpenAITokenProviderError.refreshUnsupported
+        throw AgentAuthError.refreshUnsupported
     }
 }
