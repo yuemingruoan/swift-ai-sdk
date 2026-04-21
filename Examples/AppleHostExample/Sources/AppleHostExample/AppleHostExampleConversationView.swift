@@ -92,7 +92,7 @@ struct AppleHostExampleConversationView: View {
 
     private var sessionSummary: String {
         let sessionID = model.selectedSessionID ?? model.conversationState.sessionID
-        return "\(strings.sessionID): \(sessionID)"
+        return strings.sessionSummary(sessionID)
     }
 
     private var footerText: String {

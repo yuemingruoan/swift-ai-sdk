@@ -14,7 +14,7 @@ struct AppleHostExampleApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("Apple Host Example") {
+        WindowGroup(AppleHostExampleStrings(language: .system).windowTitle) {
             AppleHostExampleRootView(model: model)
                 .frame(minWidth: 1040, minHeight: 720)
         }

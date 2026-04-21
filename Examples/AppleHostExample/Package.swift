@@ -13,7 +13,6 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../.."),
-        .package(path: "../.."),
     ],
     targets: [
         .target(
@@ -24,6 +23,9 @@ let package = Package(
                 .product(name: "AgentOpenAIAuth", package: "swift-ai-sdk"),
                 .product(name: "AgentOpenAIAuthApple", package: "swift-ai-sdk"),
                 .product(name: "AgentPersistence", package: "swift-ai-sdk"),
+            ],
+            resources: [
+                .process("Resources"),
             ]
         ),
         .executableTarget(
