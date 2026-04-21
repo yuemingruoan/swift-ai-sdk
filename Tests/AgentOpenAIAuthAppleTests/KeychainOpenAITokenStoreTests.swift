@@ -1,4 +1,5 @@
 import AgentOpenAIAuth
+import AgentCore
 @testable import AgentOpenAIAuthApple
 import Foundation
 import Testing
@@ -65,6 +66,36 @@ struct KeychainOpenAITokenStoreTests {
 
         #expect(loaded == nil)
         #expect(client.deleteCallCount == 1)
+    }
+
+    @Test func load_throws_sdk_auth_error_for_invalid_stored_data() async throws {
+        let store = KeychainOpenAITokenStore(
+            configuration: .init(service: "dev.test.swift-ai-sdk"),
+            client: .mock(copyMatching: { _, result in
+                result?.pointee = Data("not-json".utf8) as CFData
+                return errSecSuccess
+            })
+        )
+
+        await #expect(throws: AgentAuthError.invalidStoredCredentials("keychain_tokens")) {
+            _ = try await store.loadTokens()
+        }
+    }
+
+    @Test func save_throws_sdk_auth_error_for_keychain_status_failures() async throws {
+        let store = KeychainOpenAITokenStore(
+            configuration: .init(service: "dev.test.swift-ai-sdk"),
+            client: .mock(add: { _ in errSecAuthFailed }, copyMatching: { _, _ in errSecItemNotFound })
+        )
+
+        await #expect(
+            throws: AgentAuthError.secureStorageFailure(
+                operation: "keychain_add",
+                status: errSecAuthFailed
+            )
+        ) {
+            try await store.saveTokens(OpenAIAuthTokens(accessToken: "access-token"))
+        }
     }
 }
 

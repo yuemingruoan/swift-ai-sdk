@@ -1,3 +1,4 @@
+import AgentCore
 import AgentOpenAIAuth
 import Foundation
 import Security
@@ -104,13 +105,16 @@ public struct KeychainOpenAITokenStore: OpenAITokenStore, Sendable {
         switch status {
         case errSecSuccess:
             guard let data = result as? Data else {
-                throw KeychainOpenAITokenStoreError.invalidStoredData
+                throw AgentAuthError.invalidStoredCredentials("keychain_tokens")
             }
             return try decodeTokens(from: data)
         case errSecItemNotFound:
             return nil
         default:
-            throw KeychainOpenAITokenStoreError.unexpectedStatus(status)
+            throw AgentAuthError.secureStorageFailure(
+                operation: "keychain_copy_matching",
+                status: status
+            )
         }
     }
 
@@ -129,17 +133,26 @@ public struct KeychainOpenAITokenStore: OpenAITokenStore, Sendable {
                 [kSecValueData: data]
             )
             guard updateStatus == errSecSuccess else {
-                throw KeychainOpenAITokenStoreError.unexpectedStatus(updateStatus)
+                throw AgentAuthError.secureStorageFailure(
+                    operation: "keychain_update",
+                    status: updateStatus
+                )
             }
         case errSecItemNotFound:
             var addQuery = baseQuery()
             addQuery[kSecValueData] = data
             let addStatus = await client.add(addQuery)
             guard addStatus == errSecSuccess else {
-                throw KeychainOpenAITokenStoreError.unexpectedStatus(addStatus)
+                throw AgentAuthError.secureStorageFailure(
+                    operation: "keychain_add",
+                    status: addStatus
+                )
             }
         default:
-            throw KeychainOpenAITokenStoreError.unexpectedStatus(status)
+            throw AgentAuthError.secureStorageFailure(
+                operation: "keychain_copy_matching",
+                status: status
+            )
         }
     }
 
@@ -147,7 +160,10 @@ public struct KeychainOpenAITokenStore: OpenAITokenStore, Sendable {
     public func clearTokens() async throws {
         let status = await client.delete(baseQuery())
         guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw KeychainOpenAITokenStoreError.unexpectedStatus(status)
+            throw AgentAuthError.secureStorageFailure(
+                operation: "keychain_delete",
+                status: status
+            )
         }
     }
 
@@ -202,6 +218,6 @@ private func decodeTokens(from data: Data) throws -> OpenAIAuthTokens {
             .decode(StoredOpenAIAuthTokens.self, from: data)
             .tokens
     } catch {
-        throw KeychainOpenAITokenStoreError.invalidStoredData
+        throw AgentAuthError.invalidStoredCredentials("keychain_tokens")
     }
 }

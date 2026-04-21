@@ -26,9 +26,11 @@ public enum AgentDecodingError: Error, Equatable, Sendable {
 /// Errors surfaced by token providers, OAuth flows, and authenticated transports.
 public enum AgentAuthError: Error, Equatable, Sendable {
     case missingCredentials(String)
+    case invalidStoredCredentials(String)
     case unauthorized(provider: AgentProviderID?)
     case refreshUnsupported
     case tokenProviderFailure(description: String)
+    case secureStorageFailure(operation: String, status: Int32)
     case unsupportedAuthorizationMethod(String)
     case unknownAuthorizationSession
     case missingBrowserRedirectURL
