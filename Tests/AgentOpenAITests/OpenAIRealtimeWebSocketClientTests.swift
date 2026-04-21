@@ -111,6 +111,30 @@ struct OpenAIRealtimeWebSocketClientTests {
         #expect(responseCreateJSON.contains("\"type\":\"response.create\""))
     }
 
+    @Test func websocket_client_rejects_unsupported_realtime_message_parts_with_sdk_decoding_error() async throws {
+        let session = StubWebSocketSession(incomingMessages: [])
+        let client = OpenAIRealtimeWebSocketClient(
+            configuration: .init(apiKey: "sk-test", model: "gpt-realtime"),
+            session: session
+        )
+
+        try await client.connect()
+
+        await #expect(
+            throws: AgentDecodingError.requestEncoding(
+                provider: .openAI,
+                description: "unsupported realtime message part: image"
+            )
+        ) {
+            try await client.sendUserMessage(
+                AgentMessage(
+                    role: .user,
+                    parts: [.image(url: URL(string: "https://example.com/cat.png")!)]
+                )
+            )
+        }
+    }
+
     @Test func structured_realtime_events_encode_expected_payloads() throws {
         let sessionUpdate = try encode(
             OpenAIRealtimeSessionUpdateEvent(

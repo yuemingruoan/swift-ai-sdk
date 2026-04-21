@@ -165,7 +165,7 @@ persistence failures.
 | Auth | `AgentAuthError` | Token lookup/refresh, OAuth callback, compatibility-profile auth, or secure storage failed. |
 | Stream | `AgentStreamError` | SSE or other streaming responses failed at the event/protocol layer. |
 | Persistence | `AgentPersistenceError` | File-backed state could not be read as valid persisted data or could not be written. |
-| Conversion-specific | `OpenAIConversionError`, `AnthropicConversionError`, `OpenAIRealtimeMessageConversionError` | Deterministic provider-shaping failures that remain provider-specific instead of being folded into the shared SDK taxonomy. |
+| Conversion-specific | `OpenAIConversionError`, `AnthropicConversionError` | Deterministic provider-shaping failures that remain provider-specific instead of being folded into the shared SDK taxonomy. |
 
 When a shared error depends on a provider boundary, it carries `AgentProviderID`
 so hosts can log or branch on `openai` vs `anthropic` without parsing strings.
@@ -264,7 +264,7 @@ cd Examples/AppleHostExample && swift build --target AppleHostExample
 - public API entrypoints now use Swift-style doc comments
 - the documented surface covers both high-level APIs and lower-level builders, request models, and transports
 - the README now documents the SDK-facing error taxonomy and the shared HTTP transport configuration surface
-- conversion-layer failures remain intentionally provider-specific via `OpenAIConversionError`, `AnthropicConversionError`, and `OpenAIRealtimeMessageConversionError`
+- conversion-layer failures remain intentionally provider-specific via `OpenAIConversionError` and `AnthropicConversionError`
 - a longer reference for these two topics lives in [docs/SDK_ERRORS_AND_TRANSPORT.md](docs/SDK_ERRORS_AND_TRANSPORT.md)
 - release governance and tag conventions live in [docs/RELEASING.md](docs/RELEASING.md)
 - forward-looking version milestones live in [ROADMAP.md](ROADMAP.md)

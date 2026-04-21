@@ -23,7 +23,7 @@ without parsing provider-specific strings.
 | Auth | `AgentAuthError` | Token providers, OAuth/browser flows, compatibility-profile auth, and secure token storage. | Missing refresh token, browser callback state mismatch, unsupported authorization method, Keychain failure. |
 | Stream | `AgentStreamError` | Streaming protocol failures after the request is accepted. | SSE event decoding failure, streamed response status failure, provider stream server error event. |
 | Persistence | `AgentPersistenceError` | File-backed persistence read/write failures. | Invalid persisted JSON, failed session or turn file write. |
-| Conversion-specific | `OpenAIConversionError`, `AnthropicConversionError`, `OpenAIRealtimeMessageConversionError` | Deterministic provider-shaping failures that stay provider-specific on purpose. | Unsupported message roles, unsupported content blocks, invalid function-call arguments. |
+| Conversion-specific | `OpenAIConversionError`, `AnthropicConversionError` | Deterministic provider-shaping failures that stay provider-specific on purpose. | Unsupported message roles, unsupported content blocks, invalid function-call arguments. |
 
 ### Shared Versus Provider-Specific Errors
 

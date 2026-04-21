@@ -542,10 +542,6 @@ public actor OpenAIRealtimeWebSocketClient {
     }
 }
 
-public enum OpenAIRealtimeMessageConversionError: Error, Equatable, Sendable {
-    case unsupportedMessagePart(String)
-}
-
 public extension OpenAIRealtimeEvent {
     func projectedAgentStreamEvents() throws -> [AgentStreamEvent] {
         switch type {
