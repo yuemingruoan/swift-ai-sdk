@@ -4,6 +4,29 @@ import Foundation
 import Testing
 
 struct OpenAITurnRunnerTests {
+    @Test func realtime_turn_runner_rejects_non_user_messages_with_sdk_decoding_error() async {
+        let session = TurnRunnerWebSocketSession(incomingMessages: [])
+        let client = OpenAIRealtimeWebSocketClient(
+            configuration: .init(apiKey: "sk-test", model: "gpt-realtime"),
+            session: session
+        )
+        let runner = OpenAIRealtimeTurnRunner(client: client)
+
+        let stream = try! runner.runTurn(
+            input: [AgentMessage(role: .assistant, parts: [.text("internal")])]
+        )
+
+        await #expect(
+            throws: AgentDecodingError.requestEncoding(
+                provider: .openAI,
+                description: "unsupported realtime message role: assistant"
+            )
+        ) {
+            var iterator = stream.makeAsyncIterator()
+            _ = try await iterator.next()
+        }
+    }
+
     @Test func responses_turn_runner_streams_events_for_one_turn() async throws {
         let tool = ToolDescriptor.remote(
             name: "lookup_weather",

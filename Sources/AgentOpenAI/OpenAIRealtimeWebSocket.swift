@@ -406,7 +406,7 @@ public actor OpenAIRealtimeWebSocketClient {
 
     public func send(_ event: OpenAIRealtimeEvent) async throws {
         guard let connection else {
-            throw OpenAIRealtimeError.notConnected
+            throw AgentTransportError.notConnected(provider: .openAI)
         }
 
         let text = String(decoding: try JSONEncoder().encode(event), as: UTF8.self)
@@ -415,7 +415,7 @@ public actor OpenAIRealtimeWebSocketClient {
 
     public func receive() async throws -> OpenAIRealtimeEvent {
         guard let connection else {
-            throw OpenAIRealtimeError.notConnected
+            throw AgentTransportError.notConnected(provider: .openAI)
         }
 
         let text = try await connection.receiveText()
@@ -448,7 +448,10 @@ public actor OpenAIRealtimeWebSocketClient {
             case .text(let text):
                 return .init(text: text)
             case .image:
-                throw OpenAIRealtimeMessageConversionError.unsupportedMessagePart("image")
+                throw AgentDecodingError.requestEncoding(
+                    provider: .openAI,
+                    description: "unsupported realtime message part: image"
+                )
             }
         }
 

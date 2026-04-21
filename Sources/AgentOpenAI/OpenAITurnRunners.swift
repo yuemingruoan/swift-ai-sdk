@@ -196,7 +196,10 @@ private extension OpenAIRealtimeTurnRunner {
         case .user:
             try await client.sendUserMessage(message)
         case .system, .developer, .assistant, .tool:
-            throw OpenAIRealtimeTurnRunnerError.unsupportedMessageRole(message.role.rawValue)
+            throw AgentDecodingError.requestEncoding(
+                provider: .openAI,
+                description: "unsupported realtime message role: \(message.role.rawValue)"
+            )
         }
     }
 }

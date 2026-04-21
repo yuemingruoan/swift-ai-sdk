@@ -4,6 +4,17 @@ import Foundation
 import Testing
 
 struct OpenAIRealtimeWebSocketClientTests {
+    @Test func websocket_client_throws_sdk_transport_error_when_not_connected() async {
+        let client = OpenAIRealtimeWebSocketClient(
+            configuration: .init(apiKey: "sk-test", model: "gpt-realtime"),
+            session: StubWebSocketSession(incomingMessages: [])
+        )
+
+        await #expect(throws: AgentTransportError.notConnected(provider: .openAI)) {
+            _ = try await client.receive()
+        }
+    }
+
     @Test func requestBuilder_sets_custom_user_agent_header() throws {
         let builder = OpenAIRealtimeRequestBuilder(
             configuration: .init(

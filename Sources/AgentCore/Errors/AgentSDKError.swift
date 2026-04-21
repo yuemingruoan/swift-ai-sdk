@@ -14,11 +14,13 @@ public enum AgentProviderError: Error, Equatable, Sendable {
 /// Errors surfaced while building or executing transport requests.
 public enum AgentTransportError: Error, Equatable, Sendable {
     case invalidResponse(provider: AgentProviderID)
+    case notConnected(provider: AgentProviderID)
     case requestFailed(provider: AgentProviderID, description: String)
 }
 
 /// Errors surfaced while decoding provider payloads or projecting them into SDK shapes.
 public enum AgentDecodingError: Error, Equatable, Sendable {
+    case requestEncoding(provider: AgentProviderID, description: String)
     case responseBody(provider: AgentProviderID, description: String)
     case responseProjection(provider: AgentProviderID, description: String)
 }
