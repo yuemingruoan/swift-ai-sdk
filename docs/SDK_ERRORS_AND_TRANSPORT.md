@@ -80,9 +80,9 @@ transports:
 ### Example
 
 ```swift
-import AgentCore
-import AgentOpenAI
-import AgentAnthropic
+import AnthropicMessagesAPI
+import OpenAIAuthentication
+import OpenAIResponsesAPI
 import Foundation
 
 let transportConfiguration = AgentHTTPTransportConfiguration(

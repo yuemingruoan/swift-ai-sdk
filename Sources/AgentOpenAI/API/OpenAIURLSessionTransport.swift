@@ -63,6 +63,11 @@ extension URLSession: OpenAIHTTPLineStreamingSession {
     }
 }
 
+/// Minimal transport contract for non-streaming OpenAI Responses requests.
+public protocol OpenAIResponsesTransport: Sendable {
+    func createResponse(_ request: OpenAIResponseRequest) async throws -> OpenAIResponse
+}
+
 /// Lower-level builder that converts ``OpenAIResponseRequest`` into `URLRequest`.
 public struct OpenAIResponsesRequestBuilder: Sendable {
     public let configuration: OpenAIAPIConfiguration
@@ -280,35 +285,6 @@ public enum OpenAIResponseStreamEvent: Equatable, Sendable {
     case responseIncomplete(OpenAIResponse)
     case error(OpenAIResponseStreamErrorEvent)
     case responseCompleted(OpenAIResponse)
-}
-
-public extension OpenAIResponseStreamEvent {
-    /// Projects a transport event into one or more provider-neutral stream events.
-    /// - Returns: Provider-neutral events represented by the transport event.
-    /// - Throws: An error if the event represents a failed or invalid provider response.
-    func projectedAgentStreamEvents() throws -> [AgentStreamEvent] {
-        switch self {
-        case .responseCreated:
-            return []
-        case .outputTextDelta(let delta):
-            return [.textDelta(delta.delta)]
-        case .outputItemDone:
-            return []
-        case .responseFailed(let response):
-            throw AgentStreamError.responseFailed(provider: .openAI, status: response.status.rawValue)
-        case .responseIncomplete(let response):
-            throw AgentStreamError.responseFailed(provider: .openAI, status: response.status.rawValue)
-        case .error(let error):
-            throw AgentStreamError.serverError(
-                provider: .openAI,
-                type: error.type,
-                code: error.code,
-                message: error.message
-            )
-        case .responseCompleted(let response):
-            return try response.projectedOutput().agentStreamEvents()
-        }
-    }
 }
 
 /// Error event emitted by the OpenAI Responses streaming API.

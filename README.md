@@ -13,9 +13,9 @@ provider-neutral core and provider-specific adapters layered on top.
 
 ## Status
 
-- `v0.2.0` was released on 2026-04-22 as the current public SwiftPM baseline
+- `v0.3.0` was released on 2026-04-22 as the current public SwiftPM baseline
 - `v0.1.0` remains the first public SwiftPM tag
-- `main` is the active development line for follow-up work such as `v0.3.0`
+- `main` is the active development line for follow-up work such as `v0.4.0`
 - the repository does not have an installed external user base yet, so `0.x` releases may make breaking API changes while the public surface is still being tightened
 - breaking changes during `0.x` should be called out explicitly in `CHANGELOG.md` and GitHub Release notes
 - the current baseline is production-oriented infrastructure, not a feature-complete end-user SDK
@@ -24,6 +24,7 @@ provider-neutral core and provider-specific adapters layered on top.
 
 - OpenAI Responses request/response, SSE streaming, and Realtime turn execution
 - Anthropic Messages request/response, SSE streaming, and tool-loop execution
+- provider-native web search request modeling for OpenAI and Anthropic official built-in search tools
 - provider-neutral multi-turn state via `AgentConversationState` and `AgentSessionRunner`
 - local and remote tools behind one execution contract
 - split runtime middleware for model request/response interception, tool authorization, message redaction, and structured audit events
@@ -44,6 +45,7 @@ provider-neutral core and provider-specific adapters layered on top.
 | Streaming | Yes, SSE Responses streaming | Yes, SSE Messages streaming |
 | Realtime | Yes | Not yet |
 | Tool loop | Yes | Yes |
+| Official web search tool | Yes, built-in `web_search` tool | Yes, built-in `web_search_*` server tool |
 | Auth helpers | Yes, ChatGPT/Codex-style authenticated transports | Not yet |
 | Transport customization | Yes, shared HTTP transport options | Yes, shared HTTP transport options |
 
@@ -51,23 +53,26 @@ provider-neutral core and provider-specific adapters layered on top.
 
 | Module | Purpose | Layer |
 | --- | --- | --- |
-| `AgentCore` | Messages, stream events, sessions, tools, and runner contracts | High-level + foundational |
-| `AgentOpenAI` | OpenAI Responses, Realtime, request builders, and transports | High-level + low-level |
-| `AgentAnthropic` | Anthropic Messages runners, request builders, and transports | High-level + low-level |
-| `AgentOpenAIAuth` | Token providers, compatibility transforms, and authenticated transports | Low-level + integration |
-| `AgentOpenAIAuthApple` | Apple-specific secure token storage | Adapter |
-| `AgentPersistence` | Session/turn stores, persistence records, and recording wrappers | High-level + low-level |
+| `OpenAIResponsesAPI` | Raw OpenAI Responses request/response models, built-in tools, builders, transports, and raw streaming events | Low-level |
+| `OpenAIAgentRuntime` | High-level OpenAI projections, turn runners, tool-loop orchestration, and runtime streaming helpers | High-level |
+| `AnthropicMessagesAPI` | Raw Anthropic Messages request/response models, built-in tools, builders, transports, and raw streaming events | Low-level |
+| `AnthropicAgentRuntime` | High-level Anthropic projections, turn runners, tool-loop orchestration, and streaming helpers | High-level |
+| `OpenAIAuthentication` | Token providers, compatibility transforms, and authenticated OpenAI-compatible transports | Integration |
+| `OpenAIAppleAuthentication` | Apple-specific secure token storage adapters | Adapter |
+| `AgentPersistence` | Session/turn stores, persistence records, and recording wrappers | Standalone |
 | `AgentMacros` | `@Tool` macro support for descriptor generation | Authoring convenience |
+
+`AgentCore` remains in the package as an implementation layer but is no longer a public product.
 
 ## Installation
 
-`v0.2.0` is the current public SwiftPM baseline:
+`v0.3.0` is the current public SwiftPM baseline:
 
 ```swift
 dependencies: [
     .package(
         url: "https://github.com/yuemingruoan/swift-ai-sdk.git",
-        from: "0.2.0"
+        from: "0.3.0"
     )
 ]
 ```
@@ -84,6 +89,9 @@ dependencies: [
 ]
 ```
 
+If you are moving from `v0.2.0`-style imports to the `v0.3.0` public module
+surface, see [docs/MIGRATING_TO_V0_3_0.md](docs/MIGRATING_TO_V0_3_0.md).
+
 Supported platforms:
 
 - macOS 14+
@@ -95,8 +103,8 @@ Supported platforms:
 ## Quick Start
 
 ```swift
-import AgentCore
-import AgentOpenAI
+import OpenAIResponsesAPI
+import OpenAIAgentRuntime
 
 let transport = URLSessionOpenAIResponsesTransport(
     configuration: .init(apiKey: apiKey)
@@ -148,6 +156,9 @@ Examples:
 - `OpenAIResponsesRequestBuilder`, `URLSessionOpenAIResponsesTransport`, and `URLSessionOpenAIResponsesStreamingTransport` for direct HTTP and SSE control
 - `OpenAIRealtimeRequestBuilder` and the Realtime WebSocket client types for lower-level event flows
 - `AnthropicMessagesRequest`, `AnthropicMessagesRequestBuilder`, `URLSessionAnthropicMessagesTransport`, and `URLSessionAnthropicMessagesStreamingTransport` for direct Anthropic JSON and SSE control
+- OpenAI `web_search` and Anthropic `web_search_*` built-in tool declarations at the provider request layer when you want official server-side web search rather than SDK-managed remote tools
+- `AnthropicMessageResponse` and raw stream events preserve Anthropic `server_tool_use`, `web_search_tool_result`, text citations, and `usage.server_tool_use.web_search_requests`; `AnthropicAgentRuntime` intentionally projects those built-in traces down to assistant text unless you opt into the raw API surface
+- `AnthropicMessageResponse.webSearchOutput()` when you want a provider-native Claude Code-style summary of Anthropic web-search blocks without leaving the low-level API layer
 - `OpenAITokenProvider`, `OpenAIAuthenticatedResponsesRequestBuilder`, and authenticated transports for ChatGPT/Codex-style bearer flows
 - `AgentSessionStore`, `AgentTurnStore`, `FileAgentStore`, and persistence record mappers when the host needs direct persistence control
 - `AgentMiddlewareStack` plus split middleware protocols when the host needs request/response interception, tool authorization, message redaction, or structured audit recording
@@ -187,9 +198,9 @@ authenticated OpenAI-compatible Responses HTTP/SSE transports:
 - `requestID`: sets the `X-Request-Id` header
 
 ```swift
-import AgentCore
-import AgentAnthropic
-import AgentOpenAI
+import AnthropicMessagesAPI
+import OpenAIAuthentication
+import OpenAIResponsesAPI
 import Foundation
 
 let transportConfiguration = AgentHTTPTransportConfiguration(
@@ -254,8 +265,8 @@ shared transport config: `additionalHeaders`, `userAgent`, and `requestID`.
 - `OpenAIResponsesExample` for the simplest OpenAI Responses text flow
 - `OpenAIToolLoopExample` for OpenAI tool-loop execution
 - `AnthropicToolLoopExample` for Anthropic tool-loop execution, optional SSE streaming, and middleware smoke testing
-- `SessionRunnerExample` for provider-neutral multi-turn state
-- `PersistenceExample` for persisted turn recording
+- `SessionRunnerExample` for provider-neutral multi-turn state through the new runtime-facing import surface
+- `PersistenceExample` for persisted turn recording through the standalone `AgentPersistence` product
 - `Examples/AppleHostExample` for a standalone macOS SwiftUI host app with Browser OAuth, Keychain storage, SwiftData persistence, and tool execution
 
 Typical commands:
@@ -271,6 +282,29 @@ swift run SessionRunnerExample
 swift run PersistenceExample
 cd Examples/AppleHostExample && swift build --target AppleHostExample
 ```
+
+Opt-in live smoke commands:
+
+```bash
+TOKENS_JSON=$(security find-generic-password -s dev.swift-ai-sdk.apple-host-example -a chatgpt-auth -w)
+OPENAI_AUTH_LIVE_SMOKE=true \
+OPENAI_ACCESS_TOKEN=$(printf '%s' "$TOKENS_JSON" | jq -r '.accessToken') \
+OPENAI_CHATGPT_ACCOUNT_ID=$(printf '%s' "$TOKENS_JSON" | jq -r '.chatGPTAccountID') \
+OPENAI_CHATGPT_PLAN_TYPE=$(printf '%s' "$TOKENS_JSON" | jq -r '.chatGPTPlanType') \
+OPENAI_AUTH_BASE_URL=https://chatgpt.com/backend-api/codex \
+swift test --filter OpenAIAuthLiveSmokeTests
+
+cd Examples/AppleHostExample
+APPLE_HOST_EXAMPLE_LIVE_SMOKE=true swift test --filter AppleHostExampleLiveSmokeTests
+
+cd ../..
+ANTHROPIC_WEB_SEARCH_LIVE_SMOKE=true swift test --filter AnthropicWebSearchLiveSmokeTests
+```
+
+The Anthropic web-search live smoke depends on the configured backend actually
+supporting Anthropic `web_search_*` server tools. Compatible OpenAI-style relay
+backends may still time out or flatten the response shape instead of returning
+official `server_tool_use` / `web_search_tool_result` blocks.
 
 Anthropic raw responses and raw streaming events preserve provider `thinking`
 blocks. The convenience projection layer defaults to omitting them, and callers
@@ -288,6 +322,7 @@ can opt back in through `AnthropicProjectionOptions.preserveThinking` or
 - a host-facing error handling guide lives in [docs/ERROR_HANDLING_COOKBOOK.md](docs/ERROR_HANDLING_COOKBOOK.md)
 - a transport family comparison lives in [docs/TRANSPORT_FAMILY_MATRIX.md](docs/TRANSPORT_FAMILY_MATRIX.md)
 - a runtime middleware guide lives in [docs/MIDDLEWARE_GUIDE.md](docs/MIDDLEWARE_GUIDE.md)
+- a breaking-change migration guide for the new public module surface lives in [docs/MIGRATING_TO_V0_3_0.md](docs/MIGRATING_TO_V0_3_0.md)
 - release governance and tag conventions live in [docs/RELEASING.md](docs/RELEASING.md)
 - forward-looking version milestones live in [ROADMAP.md](ROADMAP.md)
 

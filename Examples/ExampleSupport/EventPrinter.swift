@@ -1,5 +1,5 @@
-import AgentCore
 import Foundation
+import OpenAIAgentRuntime
 
 public enum ExampleEventPrinter {
     public static func printEvent(_ event: AgentStreamEvent) {

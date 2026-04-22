@@ -1,5 +1,5 @@
 import AgentCore
-import AgentOpenAI
+import OpenAIResponsesAPI
 import Foundation
 
 /// Connection settings for ChatGPT/Codex-style authenticated Responses endpoints.

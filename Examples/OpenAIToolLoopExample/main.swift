@@ -1,6 +1,6 @@
-import AgentCore
-import AgentOpenAI
-import AgentOpenAIAuth
+import OpenAIAgentRuntime
+import OpenAIAuthentication
+import OpenAIResponsesAPI
 import ExampleSupport
 import Foundation
 

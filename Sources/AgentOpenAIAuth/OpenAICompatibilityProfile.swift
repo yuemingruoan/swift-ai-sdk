@@ -1,4 +1,4 @@
-import AgentOpenAI
+import OpenAIResponsesAPI
 
 public struct OpenAICompatibilityProfile: Equatable, Sendable {
     public var responsesFollowUpStrategy: OpenAIResponsesFollowUpStrategy

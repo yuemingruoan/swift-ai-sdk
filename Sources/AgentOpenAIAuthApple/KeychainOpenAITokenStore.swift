@@ -1,5 +1,5 @@
 import AgentCore
-import AgentOpenAIAuth
+import OpenAIAuthentication
 import Foundation
 import Security
 

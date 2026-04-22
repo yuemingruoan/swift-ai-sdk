@@ -1,4 +1,4 @@
-import AgentOpenAI
+import OpenAIResponsesAPI
 
 /// Applies compatibility rewrites needed by ChatGPT/Codex-style Responses backends.
 public struct OpenAIChatGPTRequestTransform: Sendable {

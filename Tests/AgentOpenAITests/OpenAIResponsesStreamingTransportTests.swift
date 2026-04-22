@@ -1,5 +1,5 @@
 import AgentCore
-import AgentOpenAI
+import OpenAIResponsesAPI
 import Foundation
 import Testing
 
@@ -154,6 +154,51 @@ struct OpenAIResponsesStreamingTransportTests {
                             status: .completed,
                             role: .assistant,
                             content: [.outputText("hello")]
+                        )
+                    ),
+                    outputIndex: 0,
+                    sequenceNumber: 10
+                )
+            ),
+        ])
+    }
+
+    @Test func streaming_transport_decodes_web_search_output_item_done_events() async throws {
+        let session = StubLineStreamingSession(
+            lines: [
+                "data: {\"type\":\"response.output_item.done\",\"item\":{\"id\":\"ws_123\",\"type\":\"web_search_call\",\"status\":\"completed\",\"action\":{\"type\":\"search\",\"query\":\"latest swift news\",\"queries\":[\"latest swift news\"],\"sources\":[{\"type\":\"url\",\"url\":\"https://example.com/swift\"}]}},\"output_index\":0,\"sequence_number\":10}",
+                "",
+            ]
+        )
+        let transport = URLSessionOpenAIResponsesStreamingTransport(
+            configuration: .init(apiKey: "sk-test"),
+            session: session
+        )
+
+        var events: [OpenAIResponseStreamEvent] = []
+        for try await event in transport.streamResponse(
+            OpenAIResponseRequest(
+                model: "gpt-5.4",
+                input: [.message(.init(role: .user, content: [.inputText("hello")]))]
+            )
+        ) {
+            events.append(event)
+        }
+
+        #expect(events == [
+            .outputItemDone(
+                OpenAIResponseOutputItemDoneEvent(
+                    item: .webSearchCall(
+                        .init(
+                            id: "ws_123",
+                            action: .search(
+                                query: "latest swift news",
+                                queries: ["latest swift news"],
+                                sources: [
+                                    .init(type: "url", url: URL(string: "https://example.com/swift")!),
+                                ]
+                            ),
+                            status: .completed
                         )
                     ),
                     outputIndex: 0,

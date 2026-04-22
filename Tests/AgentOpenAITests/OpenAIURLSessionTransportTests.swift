@@ -1,5 +1,5 @@
 import AgentCore
-import AgentOpenAI
+import OpenAIResponsesAPI
 import Foundation
 import Testing
 

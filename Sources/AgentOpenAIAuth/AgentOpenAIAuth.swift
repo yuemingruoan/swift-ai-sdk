@@ -1,2 +1,4 @@
-/// OpenAI auth and compatibility helpers live under the AgentOpenAIAuth module.
-public enum AgentOpenAIAuthModule {}
+@_exported import OpenAIResponsesAPI
+
+/// OpenAI authentication and compatibility helpers.
+public enum OpenAIAuthenticationModule {}

@@ -14,11 +14,12 @@ let package = Package(
         .visionOS(.v1),
     ],
     products: [
-        .library(name: "AgentCore", targets: ["AgentCore"]),
-        .library(name: "AgentAnthropic", targets: ["AgentAnthropic"]),
-        .library(name: "AgentOpenAI", targets: ["AgentOpenAI"]),
-        .library(name: "AgentOpenAIAuth", targets: ["AgentOpenAIAuth"]),
-        .library(name: "AgentOpenAIAuthApple", targets: ["AgentOpenAIAuthApple"]),
+        .library(name: "AnthropicMessagesAPI", targets: ["AnthropicMessagesAPI"]),
+        .library(name: "AnthropicAgentRuntime", targets: ["AnthropicAgentRuntime"]),
+        .library(name: "OpenAIResponsesAPI", targets: ["OpenAIResponsesAPI"]),
+        .library(name: "OpenAIAgentRuntime", targets: ["OpenAIAgentRuntime"]),
+        .library(name: "OpenAIAuthentication", targets: ["OpenAIAuthentication"]),
+        .library(name: "OpenAIAppleAuthentication", targets: ["OpenAIAppleAuthentication"]),
         .library(name: "AgentPersistence", targets: ["AgentPersistence"]),
         .library(name: "AgentMacros", targets: ["AgentMacros"]),
         .executable(name: "OpenAIToolLoopExample", targets: ["OpenAIToolLoopExample"]),
@@ -43,31 +44,47 @@ let package = Package(
             path: "Sources/AgentPersistence"
         ),
         .target(
-            name: "AgentAnthropic",
+            name: "AnthropicMessagesAPI",
             dependencies: [
                 "AgentCore",
             ],
-            path: "Sources/AgentAnthropic"
+            path: "Sources/AgentAnthropic/API"
         ),
         .target(
-            name: "AgentOpenAI",
+            name: "AnthropicAgentRuntime",
+            dependencies: [
+                "AgentCore",
+                "AnthropicMessagesAPI",
+            ],
+            path: "Sources/AgentAnthropic/Runtime"
+        ),
+        .target(
+            name: "OpenAIResponsesAPI",
             dependencies: [
                 "AgentCore",
             ],
-            path: "Sources/AgentOpenAI"
+            path: "Sources/AgentOpenAI/API"
         ),
         .target(
-            name: "AgentOpenAIAuth",
+            name: "OpenAIAgentRuntime",
             dependencies: [
-                "AgentOpenAI",
                 "AgentCore",
+                "OpenAIResponsesAPI",
+            ],
+            path: "Sources/AgentOpenAI/Runtime"
+        ),
+        .target(
+            name: "OpenAIAuthentication",
+            dependencies: [
+                "AgentCore",
+                "OpenAIResponsesAPI",
             ],
             path: "Sources/AgentOpenAIAuth"
         ),
         .target(
-            name: "AgentOpenAIAuthApple",
+            name: "OpenAIAppleAuthentication",
             dependencies: [
-                "AgentOpenAIAuth",
+                "OpenAIAuthentication",
             ],
             path: "Sources/AgentOpenAIAuthApple"
         ),
@@ -93,16 +110,16 @@ let package = Package(
         .target(
             name: "ExampleSupport",
             dependencies: [
-                "AgentCore",
+                "OpenAIAgentRuntime",
             ],
             path: "Examples/ExampleSupport"
         ),
         .executableTarget(
             name: "OpenAIResponsesExample",
             dependencies: [
-                "AgentCore",
-                "AgentOpenAI",
-                "AgentOpenAIAuth",
+                "OpenAIAgentRuntime",
+                "OpenAIResponsesAPI",
+                "OpenAIAuthentication",
                 "ExampleSupport",
             ],
             path: "Examples/OpenAIResponsesExample"
@@ -110,9 +127,9 @@ let package = Package(
         .executableTarget(
             name: "OpenAIToolLoopExample",
             dependencies: [
-                "AgentCore",
-                "AgentOpenAI",
-                "AgentOpenAIAuth",
+                "OpenAIAgentRuntime",
+                "OpenAIResponsesAPI",
+                "OpenAIAuthentication",
                 "ExampleSupport",
             ],
             path: "Examples/OpenAIToolLoopExample"
@@ -120,8 +137,8 @@ let package = Package(
         .executableTarget(
             name: "AnthropicToolLoopExample",
             dependencies: [
-                "AgentCore",
-                "AgentAnthropic",
+                "AnthropicAgentRuntime",
+                "AnthropicMessagesAPI",
                 "ExampleSupport",
             ],
             path: "Examples/AnthropicToolLoopExample"
@@ -129,7 +146,7 @@ let package = Package(
         .executableTarget(
             name: "SessionRunnerExample",
             dependencies: [
-                "AgentCore",
+                "OpenAIAgentRuntime",
                 "ExampleSupport",
             ],
             path: "Examples/SessionRunnerExample"
@@ -137,7 +154,6 @@ let package = Package(
         .executableTarget(
             name: "PersistenceExample",
             dependencies: [
-                "AgentCore",
                 "AgentPersistence",
                 "ExampleSupport",
             ],
@@ -162,7 +178,8 @@ let package = Package(
         .testTarget(
             name: "AgentAnthropicTests",
             dependencies: [
-                "AgentAnthropic",
+                "AnthropicMessagesAPI",
+                "AnthropicAgentRuntime",
                 "AgentCore",
             ],
             path: "Tests/AgentAnthropicTests",
@@ -173,8 +190,8 @@ let package = Package(
         .testTarget(
             name: "AgentOpenAIAuthTests",
             dependencies: [
-                "AgentOpenAIAuth",
-                "AgentOpenAI",
+                "OpenAIAuthentication",
+                "OpenAIResponsesAPI",
                 "AgentCore",
             ],
             path: "Tests/AgentOpenAIAuthTests"
@@ -182,15 +199,16 @@ let package = Package(
         .testTarget(
             name: "AgentOpenAIAuthAppleTests",
             dependencies: [
-                "AgentOpenAIAuthApple",
-                "AgentOpenAIAuth",
+                "OpenAIAppleAuthentication",
+                "OpenAIAuthentication",
             ],
             path: "Tests/AgentOpenAIAuthAppleTests"
         ),
         .testTarget(
             name: "AgentOpenAITests",
             dependencies: [
-                "AgentOpenAI",
+                "OpenAIResponsesAPI",
+                "OpenAIAgentRuntime",
                 "AgentCore",
             ],
             path: "Tests/AgentOpenAITests",

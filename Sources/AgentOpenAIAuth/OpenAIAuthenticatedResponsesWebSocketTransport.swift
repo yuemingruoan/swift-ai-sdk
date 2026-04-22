@@ -1,5 +1,5 @@
 import AgentCore
-import AgentOpenAI
+import OpenAIResponsesAPI
 import Foundation
 
 /// Builder for authenticated OpenAI-compatible Responses WebSocket requests.

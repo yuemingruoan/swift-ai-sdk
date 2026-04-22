@@ -1,5 +1,5 @@
-import AgentCore
 import Foundation
+import OpenAIAgentRuntime
 
 public func demoWeatherToolDescriptor() -> ToolDescriptor {
     ToolDescriptor.remote(

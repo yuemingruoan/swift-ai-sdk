@@ -1,4 +1,5 @@
 import AgentCore
+import OpenAIResponsesAPI
 import Foundation
 
 /// Configuration for the high-level OpenAI Responses turn runner.

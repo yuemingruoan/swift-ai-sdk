@@ -1,6 +1,6 @@
-import AgentCore
 import ExampleSupport
 import Foundation
+import OpenAIAgentRuntime
 
 @main
 enum SessionRunnerExample {

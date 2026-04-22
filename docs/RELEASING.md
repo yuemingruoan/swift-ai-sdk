@@ -1,16 +1,16 @@
 # Releasing swift-ai-sdk
 
-`v0.2.0` was released on 2026-04-22 as the current public SwiftPM baseline.
+`v0.3.0` was released on 2026-04-22 as the current public SwiftPM baseline.
 `v0.1.0` remains the first public SwiftPM tag. This document defines how
 follow-up releases should be prepared and published.
 
 ## Version Naming Rules
 
-- Git and GitHub Releases use `vX.Y.Z` tags such as `v0.2.0`
+- Git and GitHub Releases use `vX.Y.Z` tags such as `v0.3.0`
 - SwiftPM installation examples keep bare semantic versions such as
-  `from: "0.2.0"`
+  `from: "0.3.0"`
 - `CHANGELOG.md` headings should match the Git tag format, for example
-  `[v0.2.0]`
+  `[v0.3.0]`
 
 ## Release Intent
 
@@ -30,6 +30,8 @@ Before creating a tag:
 - GitHub Actions is green on the merge commit
 - `swift test` passes in the root package
 - `swift test` passes in `Examples/AppleHostExample`
+- the opt-in live smoke paths have been evaluated for the release candidate as needed:
+  authenticated OpenAI, AppleHostExample live send, and Anthropic web search when the configured backend supports it
 - `CHANGELOG.md` reflects the release scope
 - `README.md` and `README.zh-CN.md` describe installation, current limitations, and the `main` development line accurately
 - `ROADMAP.md` reflects the next known milestone after the release being cut
@@ -51,11 +53,11 @@ Before creating a tag:
    ```bash
    git checkout main
    git pull --ff-only origin main
-   git tag v0.2.0
-   git push origin v0.2.0
+   git tag v0.3.0
+   git push origin v0.3.0
    ```
 
-5. Create the GitHub Release for `v0.2.0` and use the changelog section as the
+5. Create the GitHub Release for `v0.3.0` and use the changelog section as the
    release notes.
 
 ## Suggested Release Notes Structure

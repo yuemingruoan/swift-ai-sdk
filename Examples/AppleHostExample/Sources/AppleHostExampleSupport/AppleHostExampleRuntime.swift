@@ -1,5 +1,5 @@
-import AgentCore
 import Foundation
+import OpenAIAgentRuntime
 
 public enum AppleHostExampleTransportMode: String, CaseIterable, Identifiable, Sendable {
     case responses

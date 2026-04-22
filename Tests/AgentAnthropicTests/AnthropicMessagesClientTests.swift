@@ -1,5 +1,6 @@
-import AgentAnthropic
 import AgentCore
+import AnthropicAgentRuntime
+import AnthropicMessagesAPI
 import Foundation
 import Testing
 
@@ -172,6 +173,35 @@ struct AnthropicMessagesClientTests {
                 )
             ),
         ])
+    }
+
+    @Test func response_projection_ignores_web_search_tool_use_for_compatibility_backends() throws {
+        let response = AnthropicMessageResponse(
+            id: "msg_websearch_compat",
+            model: "claude-opus-4-6",
+            role: .assistant,
+            content: [
+                .toolUse(
+                    .init(
+                        id: "toolu_websearch_123",
+                        name: "web_search",
+                        input: ["query": .string("latest swift news")]
+                    )
+                ),
+                .text("Current headline: Redesigned Swift.org is now live."),
+            ],
+            stopReason: .endTurn,
+            stopSequence: nil,
+            usage: .init(inputTokens: 12, outputTokens: 8)
+        )
+
+        let projection = try response.projectedOutput()
+
+        #expect(projection.messages == [
+            AgentMessage(role: .assistant, parts: [.text("Current headline: Redesigned Swift.org is now live.")]),
+        ])
+        #expect(projection.toolCalls.isEmpty)
+        #expect(response.content.count == 2)
     }
 
     @Test func response_projection_omits_thinking_blocks_by_default() throws {
@@ -648,6 +678,147 @@ struct AnthropicMessagesClientTests {
             ]),
         ])
         #expect(streamingTransport.recordedRequests.count == 2)
+    }
+
+    @Test func client_streaming_ignores_web_search_tool_use_compatibility_shape() async throws {
+        let client = AnthropicMessagesClient(
+            transport: StubAnthropicTransport(responses: []),
+            streamingTransport: SequencedAnthropicStreamingTransport(
+                eventSequences: [[
+                    .messageStart(
+                        .init(
+                            message: .init(
+                                id: "msg_stream_websearch_compat",
+                                model: "claude-opus-4-6",
+                                role: .assistant,
+                                content: [],
+                                stopReason: nil,
+                                stopSequence: nil,
+                                usage: .init(inputTokens: 10, outputTokens: 1)
+                            )
+                        )
+                    ),
+                    .contentBlockStart(
+                        .init(
+                            index: 0,
+                            contentBlock: .init(type: "tool_use", id: "toolu_websearch_123", name: "web_search", input: [:])
+                        )
+                    ),
+                    .contentBlockDelta(
+                        .init(index: 0, delta: .init(type: "input_json_delta", partialJSON: "{\"query\":\"latest swift news\"}"))
+                    ),
+                    .contentBlockStop(.init(index: 0)),
+                    .contentBlockStart(.init(index: 1, contentBlock: .init(type: "text", text: ""))),
+                    .contentBlockDelta(
+                        .init(index: 1, delta: .init(type: "text_delta", text: "Current headline: Redesigned Swift.org is now live."))
+                    ),
+                    .contentBlockStop(.init(index: 1)),
+                    .messageDelta(.init(delta: .init(stopReason: .endTurn, stopSequence: nil), usage: .init(outputTokens: 5))),
+                    .messageStop,
+                ]]
+            )
+        )
+
+        var events: [AgentStreamEvent] = []
+        for try await event in client.projectedResponseEvents(
+            try AnthropicMessagesRequest(
+                model: "claude-opus-4-6",
+                maxTokens: 128,
+                messages: [.userText("hello")]
+            ),
+            stream: true
+        ) {
+            events.append(event)
+        }
+
+        #expect(events == [
+            .textDelta("Current headline: Redesigned Swift.org is now live."),
+            .messagesCompleted([
+                .init(role: .assistant, parts: [.text("Current headline: Redesigned Swift.org is now live.")]),
+            ]),
+        ])
+    }
+
+    @Test func client_streaming_projects_cited_text_as_plain_text() async throws {
+        let client = AnthropicMessagesClient(
+            transport: StubAnthropicTransport(responses: []),
+            streamingTransport: SequencedAnthropicStreamingTransport(
+                eventSequences: [[
+                    .messageStart(
+                        .init(
+                            message: .init(
+                                id: "msg_stream_citations",
+                                model: "claude-opus-4-6",
+                                role: .assistant,
+                                content: [],
+                                stopReason: nil,
+                                stopSequence: nil,
+                                usage: .init(
+                                    inputTokens: 10,
+                                    outputTokens: 1,
+                                    serverToolUse: .init(webSearchRequests: 1)
+                                )
+                            )
+                        )
+                    ),
+                    .contentBlockStart(
+                        .init(
+                            index: 0,
+                            contentBlock: .init(
+                                type: "text",
+                                text: "Swift 6.3 ",
+                                citations: [
+                                    .init(
+                                        type: "web_search_result_location",
+                                        url: URL(string: "https://www.swift.org/blog/"),
+                                        title: "Swift.org Blog"
+                                    ),
+                                ]
+                            )
+                        )
+                    ),
+                    .contentBlockDelta(
+                        .init(index: 0, delta: .init(type: "text_delta", text: "is available."))
+                    ),
+                    .contentBlockDelta(
+                        .init(
+                            index: 0,
+                            delta: .init(
+                                type: "citations_delta",
+                                citation: .init(
+                                    type: "web_search_result_location",
+                                    encryptedIndex: "enc_789",
+                                    citedText: "is available.",
+                                    searchResultIndex: 1
+                                )
+                            )
+                        )
+                    ),
+                    .contentBlockStop(.init(index: 0)),
+                    .messageDelta(.init(delta: .init(stopReason: .endTurn, stopSequence: nil), usage: .init(outputTokens: 5))),
+                    .messageStop,
+                ]]
+            )
+        )
+
+        var events: [AgentStreamEvent] = []
+        for try await event in client.projectedResponseEvents(
+            try AnthropicMessagesRequest(
+                model: "claude-opus-4-6",
+                maxTokens: 128,
+                messages: [.userText("hello")]
+            ),
+            stream: true
+        ) {
+            events.append(event)
+        }
+
+        #expect(events == [
+            .textDelta("is available."),
+            .messagesCompleted([
+                .init(role: .assistant, parts: [.text("Swift 6.3 is available.")]),
+            ]),
+        ])
     }
 
     @Test func transport_retries_retryable_status_codes_using_shared_retry_policy() async throws {

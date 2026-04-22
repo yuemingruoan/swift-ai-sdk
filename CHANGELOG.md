@@ -7,9 +7,23 @@ and the project follows semantic versioning for the SwiftPM version surface.
 
 ## [Unreleased]
 
+## [v0.3.0] - 2026-04-22
+
+### Added
+
+- the `v0.3.0` public module redesign, exposing `OpenAIResponsesAPI`, `OpenAIAgentRuntime`, `AnthropicMessagesAPI`, `AnthropicAgentRuntime`, `OpenAIAuthentication`, and `OpenAIAppleAuthentication`
+- provider-native web search request modeling for OpenAI Responses and Anthropic Messages, aligned with each provider's official built-in tool interface
+- raw response and streaming decoding coverage for OpenAI `web_search_call` items and Anthropic `server_tool_use` / `web_search_tool_result` blocks
+- Anthropic raw citation decoding, `usage.server_tool_use.web_search_requests`, and `AnthropicMessageResponse.webSearchOutput()` for provider-native web-search result extraction without leaving the low-level API layer
+- release-facing migration guides for the `v0.3.0` public import-surface change in both English and Simplified Chinese
+- opt-in live smoke coverage for authenticated OpenAI transports and AppleHostExample send flows, plus a gated Anthropic web-search live smoke for backends that support official `web_search_*` server tools
+
 ### Changed
 
-- placeholder for post-`v0.2.0` development
+- `AgentCore` remains as an internal implementation target and is no longer intended to be consumed as a public package product
+- examples, tests, README content, and integration docs now use the split `*API` / `*AgentRuntime` / `OpenAIAuthentication` import surface
+- high-level OpenAI and Anthropic projections now ignore provider-built-in web search traces instead of treating them like client-executed function tools
+- Anthropic compatibility handling now treats `tool_use(name: "web_search")` as a provider-built-in trace for compatibility backends rather than surfacing it as a host-managed tool call
 
 ## [v0.2.0] - 2026-04-22
 

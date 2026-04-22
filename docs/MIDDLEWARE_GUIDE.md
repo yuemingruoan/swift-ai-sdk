@@ -114,8 +114,8 @@ not on raw streaming deltas.
 ## Minimal Example
 
 ```swift
-import AgentAnthropic
-import AgentCore
+import AnthropicAgentRuntime
+import AnthropicMessagesAPI
 
 let middleware = AgentMiddlewareStack(
     toolAuthorization: [

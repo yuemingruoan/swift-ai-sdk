@@ -1,5 +1,5 @@
 import AppleHostExampleSupport
-import AgentCore
+import OpenAIAgentRuntime
 import SwiftUI
 
 struct AppleHostExampleConversationView: View {

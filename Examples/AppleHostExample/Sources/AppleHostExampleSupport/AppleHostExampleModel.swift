@@ -1,8 +1,7 @@
-import AgentCore
-import AgentOpenAI
-import AgentOpenAIAuth
-import AgentOpenAIAuthApple
 import AgentPersistence
+import OpenAIAgentRuntime
+import OpenAIAppleAuthentication
+import OpenAIAuthentication
 import Foundation
 import Observation
 

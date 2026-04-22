@@ -1,5 +1,5 @@
-import AgentAnthropic
 import AgentCore
+import AnthropicMessagesAPI
 import Foundation
 import Testing
 
@@ -131,6 +131,137 @@ struct AnthropicMessagesStreamingTransportTests {
                 )
             ),
             .messageStop,
+        ])
+    }
+
+    @Test func streaming_transport_decodes_web_search_server_events() async throws {
+        let session = StubAnthropicLineStreamingSession(
+            lines: [
+                "data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"server_tool_use\",\"id\":\"srvtoolu_123\",\"name\":\"web_search\"}}",
+                "",
+                "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"query\\\":\\\"latest swift news\\\"}\"}}",
+                "",
+                "data: {\"type\":\"content_block_stop\",\"index\":1}",
+                "",
+                "data: {\"type\":\"content_block_start\",\"index\":2,\"content_block\":{\"type\":\"web_search_tool_result\",\"tool_use_id\":\"srvtoolu_123\",\"content\":[{\"type\":\"web_search_result\",\"url\":\"https://example.com/swift\",\"title\":\"Swift news\"}]}}",
+                "",
+                "data: {\"type\":\"content_block_stop\",\"index\":2}",
+                "",
+            ]
+        )
+        let transport = URLSessionAnthropicMessagesStreamingTransport(
+            configuration: .init(apiKey: "sk-ant-test"),
+            session: session
+        )
+
+        var events: [AnthropicMessageStreamEvent] = []
+        for try await event in transport.streamMessage(
+            try AnthropicMessagesRequest(
+                model: "claude-opus-4-7",
+                maxTokens: 256,
+                messages: [.userText("hello")]
+            )
+        ) {
+            events.append(event)
+        }
+
+        #expect(events == [
+            .contentBlockStart(
+                .init(
+                    index: 1,
+                    contentBlock: .init(type: "server_tool_use", id: "srvtoolu_123", name: "web_search")
+                )
+            ),
+            .contentBlockDelta(
+                .init(
+                    index: 1,
+                    delta: .init(type: "input_json_delta", partialJSON: "{\"query\":\"latest swift news\"}")
+                )
+            ),
+            .contentBlockStop(.init(index: 1)),
+            .contentBlockStart(
+                .init(
+                    index: 2,
+                    contentBlock: .init(
+                        type: "web_search_tool_result",
+                        toolUseID: "srvtoolu_123",
+                        webSearchResultContent: .results([
+                            .init(url: URL(string: "https://example.com/swift")!, title: "Swift news"),
+                        ])
+                    )
+                )
+            ),
+            .contentBlockStop(.init(index: 2)),
+        ])
+    }
+
+    @Test func streaming_transport_decodes_text_citation_deltas() async throws {
+        let session = StubAnthropicLineStreamingSession(
+            lines: [
+                "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"Swift 6.3 \",\"citations\":[{\"type\":\"web_search_result_location\",\"title\":\"Swift.org Blog\",\"url\":\"https://www.swift.org/blog/\"}]}}",
+                "",
+                "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"is available.\"}}",
+                "",
+                "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"citations_delta\",\"citation\":{\"type\":\"web_search_result_location\",\"encrypted_index\":\"enc_456\",\"cited_text\":\"is available.\",\"search_result_index\":1}}}",
+                "",
+                "data: {\"type\":\"content_block_stop\",\"index\":0}",
+                "",
+            ]
+        )
+        let transport = URLSessionAnthropicMessagesStreamingTransport(
+            configuration: .init(apiKey: "sk-ant-test"),
+            session: session
+        )
+
+        var events: [AnthropicMessageStreamEvent] = []
+        for try await event in transport.streamMessage(
+            try AnthropicMessagesRequest(
+                model: "claude-opus-4-6",
+                maxTokens: 256,
+                messages: [.userText("hello")]
+            )
+        ) {
+            events.append(event)
+        }
+
+        #expect(events == [
+            .contentBlockStart(
+                .init(
+                    index: 0,
+                    contentBlock: .init(
+                        type: "text",
+                        text: "Swift 6.3 ",
+                        citations: [
+                            .init(
+                                type: "web_search_result_location",
+                                url: URL(string: "https://www.swift.org/blog/"),
+                                title: "Swift.org Blog"
+                            ),
+                        ]
+                    )
+                )
+            ),
+            .contentBlockDelta(
+                .init(
+                    index: 0,
+                    delta: .init(type: "text_delta", text: "is available.")
+                )
+            ),
+            .contentBlockDelta(
+                .init(
+                    index: 0,
+                    delta: .init(
+                        type: "citations_delta",
+                        citation: .init(
+                            type: "web_search_result_location",
+                            encryptedIndex: "enc_456",
+                            citedText: "is available.",
+                            searchResultIndex: 1
+                        )
+                    )
+                )
+            ),
+            .contentBlockStop(.init(index: 0)),
         ])
     }
 

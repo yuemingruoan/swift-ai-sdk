@@ -22,7 +22,7 @@ public struct OpenAIResponseRequest: Codable, Equatable, Sendable {
     ///   - store: Optional provider hint controlling server-side response storage.
     ///   - promptCacheKey: Optional cache key forwarded to compatible providers.
     ///   - stream: Optional streaming flag sent to the provider.
-    ///   - tools: Optional function tools exposed to the model.
+    ///   - tools: Optional built-in or function tools exposed to the model.
     ///   - toolChoice: Optional tool-choice override sent to the provider.
     public init(
         model: String,
@@ -128,11 +128,63 @@ public enum OpenAIResponseToolChoice: String, Codable, Equatable, Sendable {
 }
 
 /// Function tool declaration sent to the OpenAI Responses API.
+/// Domain filters for the built-in OpenAI web search tool.
+public struct OpenAIWebSearchFilters: Codable, Equatable, Sendable {
+    public var allowedDomains: [String]?
+    public var blockedDomains: [String]?
+
+    /// Creates domain filters for the built-in OpenAI web search tool.
+    public init(
+        allowedDomains: [String]? = nil,
+        blockedDomains: [String]? = nil
+    ) {
+        self.allowedDomains = allowedDomains
+        self.blockedDomains = blockedDomains
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case allowedDomains = "allowed_domains"
+        case blockedDomains = "blocked_domains"
+    }
+}
+
+/// Location precision for OpenAI built-in web search.
+public enum OpenAIWebSearchUserLocationType: String, Codable, Equatable, Sendable {
+    case approximate
+}
+
+/// Approximate user location passed to the OpenAI built-in web search tool.
+public struct OpenAIWebSearchUserLocation: Codable, Equatable, Sendable {
+    public var type: OpenAIWebSearchUserLocationType
+    public var country: String
+    public var city: String?
+    public var region: String?
+    public var timezone: String?
+
+    /// Creates an approximate user location for OpenAI web search.
+    public init(
+        type: OpenAIWebSearchUserLocationType = .approximate,
+        country: String,
+        city: String? = nil,
+        region: String? = nil,
+        timezone: String? = nil
+    ) {
+        self.type = type
+        self.country = country
+        self.city = city
+        self.region = region
+        self.timezone = timezone
+    }
+}
+
 public struct OpenAIResponseTool: Codable, Equatable, Sendable {
     public var type: String
-    public var name: String
+    public var name: String?
     public var description: String?
-    public var parameters: OpenAIResponseToolSchema
+    public var parameters: OpenAIResponseToolSchema?
+    public var filters: OpenAIWebSearchFilters?
+    public var userLocation: OpenAIWebSearchUserLocation?
+    public var externalWebAccess: Bool?
 
     /// Creates a function tool declaration for the OpenAI Responses API.
     /// - Parameters:
@@ -148,6 +200,28 @@ public struct OpenAIResponseTool: Codable, Equatable, Sendable {
         self.name = name
         self.description = description
         self.parameters = parameters
+        self.filters = nil
+        self.userLocation = nil
+        self.externalWebAccess = nil
+    }
+
+    /// Creates a built-in web-search tool declaration for the OpenAI Responses API.
+    /// - Parameters:
+    ///   - filters: Optional domain filters applied to web search.
+    ///   - userLocation: Optional approximate user location used to localize results.
+    ///   - externalWebAccess: Optional flag controlling broader external web access behavior.
+    public init(
+        webSearchFilters filters: OpenAIWebSearchFilters? = nil,
+        userLocation: OpenAIWebSearchUserLocation? = nil,
+        externalWebAccess: Bool? = nil
+    ) {
+        self.type = "web_search"
+        self.name = nil
+        self.description = nil
+        self.parameters = nil
+        self.filters = filters
+        self.userLocation = userLocation
+        self.externalWebAccess = externalWebAccess
     }
 
     /// Converts a provider-neutral ``ToolDescriptor`` into an OpenAI function tool.
@@ -159,6 +233,29 @@ public struct OpenAIResponseTool: Codable, Equatable, Sendable {
                 toolInputSchema: descriptor.inputSchema ?? .object()
             )
         )
+    }
+
+    /// Convenience constructor for the built-in OpenAI web search tool.
+    public static func webSearch(
+        filters: OpenAIWebSearchFilters? = nil,
+        userLocation: OpenAIWebSearchUserLocation? = nil,
+        externalWebAccess: Bool? = nil
+    ) -> Self {
+        .init(
+            webSearchFilters: filters,
+            userLocation: userLocation,
+            externalWebAccess: externalWebAccess
+        )
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case name
+        case description
+        case parameters
+        case filters
+        case userLocation = "user_location"
+        case externalWebAccess = "external_web_access"
     }
 }
 
@@ -330,6 +427,7 @@ public struct OpenAIResponseInputBuilder: Equatable, Sendable {
 
 public enum OpenAIResponseInputItem: Equatable, Sendable {
     case message(OpenAIInputMessage)
+    case webSearchCall(OpenAIWebSearchCall)
     case functionCall(OpenAIResponseFunctionCall)
     case functionCallOutput(OpenAIFunctionCallOutput)
 }
@@ -341,6 +439,7 @@ extension OpenAIResponseInputItem: Codable {
 
     enum Kind: String, Codable {
         case message
+        case webSearchCall = "web_search_call"
         case functionCall = "function_call"
         case functionCallOutput = "function_call_output"
     }
@@ -350,6 +449,8 @@ extension OpenAIResponseInputItem: Codable {
         switch try container.decode(Kind.self, forKey: .type) {
         case .message:
             self = .message(try OpenAIInputMessage(from: decoder))
+        case .webSearchCall:
+            self = .webSearchCall(try OpenAIWebSearchCall(from: decoder))
         case .functionCall:
             self = .functionCall(try OpenAIResponseFunctionCall(from: decoder))
         case .functionCallOutput:
@@ -361,6 +462,8 @@ extension OpenAIResponseInputItem: Codable {
         switch self {
         case .message(let message):
             try message.encode(to: encoder)
+        case .webSearchCall(let webSearchCall):
+            try webSearchCall.encode(to: encoder)
         case .functionCall(let functionCall):
             try functionCall.encode(to: encoder)
         case .functionCallOutput(let output):

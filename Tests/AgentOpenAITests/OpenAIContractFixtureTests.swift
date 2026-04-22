@@ -1,5 +1,6 @@
 import AgentCore
-import AgentOpenAI
+import OpenAIAgentRuntime
+import OpenAIResponsesAPI
 import Foundation
 import Testing
 
@@ -63,6 +64,80 @@ struct OpenAIContractFixtureTests {
                 )
             ),
         ])
+    }
+
+    @Test func request_encodes_builtin_web_search_tool() throws {
+        let request = OpenAIResponseRequest(
+            model: "gpt-5.4",
+            input: [.message(.init(role: .user, content: [.inputText("latest news")]))],
+            tools: [
+                .webSearch(
+                    filters: .init(
+                        allowedDomains: ["example.com"],
+                        blockedDomains: ["blocked.example"]
+                    ),
+                    userLocation: .init(
+                        country: "GB",
+                        city: "London",
+                        region: "London"
+                    ),
+                    externalWebAccess: false
+                ),
+            ],
+            toolChoice: .auto
+        )
+
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any]
+        )
+        let tools = try #require(payload["tools"] as? [[String: Any]])
+        let tool = try #require(tools.first)
+
+        #expect(tool["type"] as? String == "web_search")
+        let filters = try #require(tool["filters"] as? [String: Any])
+        #expect(filters["allowed_domains"] as? [String] == ["example.com"])
+        #expect(filters["blocked_domains"] as? [String] == ["blocked.example"])
+        let userLocation = try #require(tool["user_location"] as? [String: Any])
+        #expect(userLocation["type"] as? String == "approximate")
+        #expect(userLocation["country"] as? String == "GB")
+        #expect(userLocation["city"] as? String == "London")
+        #expect(userLocation["region"] as? String == "London")
+        #expect(tool["external_web_access"] as? Bool == false)
+    }
+
+    @Test func response_projection_ignores_web_search_calls_but_decodes_raw_output() throws {
+        let response = OpenAIResponse(
+            id: "resp_websearch",
+            status: .completed,
+            output: [
+                .webSearchCall(
+                    .init(
+                        id: "ws_123",
+                        action: .search(
+                            query: "latest swift 6.3 release",
+                            queries: ["latest swift 6.3 release"],
+                            sources: [.init(type: "url", url: URL(string: "https://example.com")!)]
+                        ),
+                        status: .completed
+                    )
+                ),
+                .message(
+                    .init(
+                        id: "msg_123",
+                        status: .completed,
+                        role: .assistant,
+                        content: [.outputText("Swift 6.3 released.")]
+                    )
+                ),
+            ]
+        )
+
+        let projection = try response.projectedOutput()
+
+        #expect(projection.messages == [
+            AgentMessage(role: .assistant, parts: [.text("Swift 6.3 released.")]),
+        ])
+        #expect(projection.toolCalls.isEmpty)
     }
 }
 

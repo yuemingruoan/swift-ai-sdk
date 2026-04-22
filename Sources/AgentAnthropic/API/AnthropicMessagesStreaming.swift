@@ -41,29 +41,51 @@ public protocol AnthropicMessagesStreamingTransport: Sendable {
 public struct AnthropicMessageStreamContentBlock: Codable, Equatable, Sendable {
     public var type: String
     public var text: String?
+    public var citations: [AnthropicTextCitation]?
     public var id: String?
     public var name: String?
     public var input: [String: ToolValue]?
     public var thinking: String?
     public var signature: String?
+    public var toolUseID: String?
+    public var webSearchResultContent: AnthropicWebSearchToolResultContent?
 
     /// Creates a provider-facing stream content block payload.
     public init(
         type: String,
         text: String? = nil,
+        citations: [AnthropicTextCitation]? = nil,
         id: String? = nil,
         name: String? = nil,
         input: [String: ToolValue]? = nil,
         thinking: String? = nil,
-        signature: String? = nil
+        signature: String? = nil,
+        toolUseID: String? = nil,
+        webSearchResultContent: AnthropicWebSearchToolResultContent? = nil
     ) {
         self.type = type
         self.text = text
+        self.citations = citations
         self.id = id
         self.name = name
         self.input = input
         self.thinking = thinking
         self.signature = signature
+        self.toolUseID = toolUseID
+        self.webSearchResultContent = webSearchResultContent
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case text
+        case citations
+        case id
+        case name
+        case input
+        case thinking
+        case signature
+        case toolUseID = "tool_use_id"
+        case webSearchResultContent = "content"
     }
 }
 
@@ -71,6 +93,7 @@ public struct AnthropicMessageStreamContentBlock: Codable, Equatable, Sendable {
 public struct AnthropicMessageStreamDeltaPayload: Codable, Equatable, Sendable {
     public var type: String
     public var text: String?
+    public var citation: AnthropicTextCitation?
     public var partialJSON: String?
     public var thinking: String?
     public var signature: String?
@@ -79,12 +102,14 @@ public struct AnthropicMessageStreamDeltaPayload: Codable, Equatable, Sendable {
     public init(
         type: String,
         text: String? = nil,
+        citation: AnthropicTextCitation? = nil,
         partialJSON: String? = nil,
         thinking: String? = nil,
         signature: String? = nil
     ) {
         self.type = type
         self.text = text
+        self.citation = citation
         self.partialJSON = partialJSON
         self.thinking = thinking
         self.signature = signature
@@ -93,6 +118,7 @@ public struct AnthropicMessageStreamDeltaPayload: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case type
         case text
+        case citation
         case partialJSON = "partial_json"
         case thinking
         case signature

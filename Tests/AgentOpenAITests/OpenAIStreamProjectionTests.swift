@@ -1,5 +1,6 @@
 import AgentCore
-import AgentOpenAI
+import OpenAIAgentRuntime
+import OpenAIResponsesAPI
 import Foundation
 import Testing
 

@@ -1,6 +1,6 @@
-import AgentCore
-import AgentOpenAIAuth
-import AgentOpenAIAuthApple
+import OpenAIAgentRuntime
+import OpenAIAppleAuthentication
+import OpenAIAuthentication
 @testable import AppleHostExampleSupport
 import Foundation
 import Security

@@ -420,10 +420,6 @@ public actor OpenAIRealtimeWebSocketClient {
         return try JSONDecoder().decode(OpenAIRealtimeEvent.self, from: Data(text.utf8))
     }
 
-    public func receiveProjectedEvents() async throws -> [AgentStreamEvent] {
-        try await receive().projectedAgentStreamEvents()
-    }
-
     public func updateSession(instructions: String) async throws {
         try await updateSession(.init(instructions: instructions))
     }
@@ -489,81 +485,9 @@ public actor OpenAIRealtimeWebSocketClient {
         }
         try await send(try JSONDecoder().decode(OpenAIRealtimeEvent.self, from: data))
     }
-
-    public func receiveUntilTurnFinished(
-        using executor: ToolExecutor? = nil,
-        maxIterations: Int = 8
-    ) async throws -> [AgentStreamEvent] {
-        var events: [AgentStreamEvent] = []
-        var remainingIterations = maxIterations
-
-        while true {
-            guard remainingIterations > 0 else {
-                throw AgentRuntimeError.toolCallLimitExceeded(provider: .openAI, maxIterations: maxIterations)
-            }
-
-            let realtimeEvent = try await receive()
-            switch realtimeEvent.type {
-            case "response.output_text.delta":
-                let projected = try realtimeEvent.projectedAgentStreamEvents()
-                events.append(contentsOf: projected)
-
-            case "response.completed", "response.done":
-                let response = try decodeCompletedResponse(from: realtimeEvent)
-                let projection = try response.projectedOutput()
-                let projected = projection.agentStreamEvents()
-                events.append(contentsOf: projected)
-
-                if projection.toolCalls.isEmpty {
-                    return events
-                }
-
-                guard let executor else {
-                    return events
-                }
-
-                for toolCall in projection.toolCalls {
-                    let result = try await executor.invoke(toolCall.invocation)
-                    try await sendFunctionCallOutput(
-                        callID: toolCall.callID,
-                        output: try encodeToolResult(result)
-                    )
-                }
-                try await createResponse()
-                remainingIterations -= 1
-
-            default:
-                continue
-            }
-        }
-    }
-
     public func disconnect() async {
         await connection?.cancel()
         connection = nil
-    }
-}
-
-public extension OpenAIRealtimeEvent {
-    func projectedAgentStreamEvents() throws -> [AgentStreamEvent] {
-        switch type {
-        case "response.output_text.delta":
-            guard case let .string(delta)? = payload["delta"] else {
-                return []
-            }
-            return [.textDelta(delta)]
-
-        case "response.completed", "response.done":
-            guard let responseValue = payload["response"] else {
-                return []
-            }
-            let data = try JSONEncoder().encode(responseValue)
-            let response = try JSONDecoder().decode(OpenAIResponse.self, from: data)
-            return try response.projectedOutput().agentStreamEvents()
-
-        default:
-            return []
-        }
     }
 }
 

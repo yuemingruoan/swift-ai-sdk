@@ -1,5 +1,5 @@
 import AgentCore
-import AgentOpenAI
+import OpenAIResponsesAPI
 import Foundation
 
 /// Token refresher that exchanges a stored ChatGPT/Codex refresh token for a fresh token bundle.

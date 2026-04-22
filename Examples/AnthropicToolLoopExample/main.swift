@@ -1,11 +1,20 @@
-import AgentAnthropic
-import AgentCore
+import AnthropicAgentRuntime
+import AnthropicMessagesAPI
 import ExampleSupport
 import Foundation
 
 @main
 enum AnthropicToolLoopExample {
-    static func main() async throws {
+    static func main() async {
+        do {
+            try await run()
+        } catch {
+            fputs("AnthropicToolLoopExample failed: \(String(describing: error))\n", stderr)
+            Foundation.exit(1)
+        }
+    }
+
+    private static func run() async throws {
         let apiKey = ExampleEnvironment.require(
             "ANTHROPIC_API_KEY",
             help: "Set ANTHROPIC_API_KEY before running AnthropicToolLoopExample."
@@ -44,8 +53,6 @@ enum AnthropicToolLoopExample {
         let tool = demoWeatherToolDescriptor()
         let registry = ToolRegistry()
         try await registry.register(tool)
-        let executor = ToolExecutor(registry: registry)
-        await executor.register(DemoWeatherTransport())
         let middleware = AgentMiddlewareStack(
             modelResponse: responsePrefix.isEmpty ? [] : [
                 ExampleResponsePrefixMiddleware(prefix: responsePrefix)
@@ -55,6 +62,8 @@ enum AnthropicToolLoopExample {
             ],
             audit: printAudit ? [ExampleAuditMiddleware()] : []
         )
+        let executor = ToolExecutor(registry: registry, middleware: middleware)
+        await executor.register(DemoWeatherTransport())
 
         let transport = URLSessionAnthropicMessagesTransport(
             configuration: .init(

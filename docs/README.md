@@ -1,7 +1,7 @@
 # Documentation Index
 
-This directory contains the active repository documentation for the next public
-release line.
+This directory contains the active repository documentation for the current
+development line and the next public release.
 
 ## Release Preparation
 
@@ -22,6 +22,8 @@ release line.
   surfaces
 - [MIDDLEWARE_GUIDE.md](MIDDLEWARE_GUIDE.md): runtime middleware boundaries,
   injection points, and Anthropic streaming integration notes
+- [MIGRATING_TO_V0_3_0.md](MIGRATING_TO_V0_3_0.md): breaking import-surface
+  migration from the mixed provider modules to the new public API/runtime split
 
 ## Localized References
 
@@ -29,6 +31,7 @@ release line.
 - [ERROR_HANDLING_COOKBOOK.zh-CN.md](ERROR_HANDLING_COOKBOOK.zh-CN.md)
 - [TRANSPORT_FAMILY_MATRIX.zh-CN.md](TRANSPORT_FAMILY_MATRIX.zh-CN.md)
 - [MIDDLEWARE_GUIDE.zh-CN.md](MIDDLEWARE_GUIDE.zh-CN.md)
+- [MIGRATING_TO_V0_3_0.zh-CN.md](MIGRATING_TO_V0_3_0.zh-CN.md)
 
 ## Notes
 

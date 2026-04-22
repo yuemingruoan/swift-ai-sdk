@@ -1,5 +1,5 @@
-import AgentCore
 import Foundation
+import OpenAIAgentRuntime
 
 public struct DemoConversationTurnRunner: AgentTurnRunner, Sendable {
     public init() {}

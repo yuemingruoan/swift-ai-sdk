@@ -1,5 +1,6 @@
-import AgentAnthropic
 import AgentCore
+import AnthropicAgentRuntime
+import AnthropicMessagesAPI
 import Foundation
 import Testing
 

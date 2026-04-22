@@ -110,8 +110,8 @@ streaming delta。
 ## 最小示例
 
 ```swift
-import AgentAnthropic
-import AgentCore
+import AnthropicAgentRuntime
+import AnthropicMessagesAPI
 
 let middleware = AgentMiddlewareStack(
     toolAuthorization: [

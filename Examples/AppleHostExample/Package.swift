@@ -18,10 +18,9 @@ let package = Package(
         .target(
             name: "AppleHostExampleSupport",
             dependencies: [
-                .product(name: "AgentCore", package: "swift-ai-sdk"),
-                .product(name: "AgentOpenAI", package: "swift-ai-sdk"),
-                .product(name: "AgentOpenAIAuth", package: "swift-ai-sdk"),
-                .product(name: "AgentOpenAIAuthApple", package: "swift-ai-sdk"),
+                .product(name: "OpenAIAgentRuntime", package: "swift-ai-sdk"),
+                .product(name: "OpenAIAuthentication", package: "swift-ai-sdk"),
+                .product(name: "OpenAIAppleAuthentication", package: "swift-ai-sdk"),
                 .product(name: "AgentPersistence", package: "swift-ai-sdk"),
             ],
             resources: [
@@ -38,9 +37,8 @@ let package = Package(
             name: "AppleHostExampleSupportTests",
             dependencies: [
                 "AppleHostExampleSupport",
-                .product(name: "AgentCore", package: "swift-ai-sdk"),
                 .product(name: "AgentPersistence", package: "swift-ai-sdk"),
-                .product(name: "AgentOpenAIAuthApple", package: "swift-ai-sdk"),
+                .product(name: "OpenAIAppleAuthentication", package: "swift-ai-sdk"),
             ]
         ),
     ]

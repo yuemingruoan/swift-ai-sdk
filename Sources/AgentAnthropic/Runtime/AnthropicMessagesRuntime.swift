@@ -1,288 +1,6 @@
 import AgentCore
+import AnthropicMessagesAPI
 import Foundation
-
-/// Connection settings for direct Anthropic Messages HTTP transports.
-public struct AnthropicAPIConfiguration: Equatable, Sendable {
-    public var apiKey: String
-    public var baseURL: URL
-    public var version: String
-    public var userAgent: String?
-    public var transport: AgentHTTPTransportConfiguration
-
-    /// Creates configuration for direct Anthropic Messages transports.
-    /// - Parameters:
-    ///   - apiKey: API key sent as `x-api-key`.
-    ///   - baseURL: Base API URL, defaulting to the official Anthropic v1 endpoint.
-    ///   - version: Anthropic API version header value.
-    ///   - userAgent: Optional `User-Agent` header override.
-    public init(
-        apiKey: String,
-        baseURL: URL = URL(string: "https://api.anthropic.com/v1")!,
-        version: String = "2023-06-01",
-        transport: AgentHTTPTransportConfiguration = .init(),
-        userAgent: String? = nil
-    ) {
-        self.apiKey = apiKey
-        self.baseURL = baseURL
-        self.version = version
-        self.transport = transport
-        self.userAgent = userAgent
-    }
-}
-
-/// Minimal async HTTP session used by Anthropic transports.
-public protocol AnthropicHTTPSession: Sendable {
-    func data(for request: URLRequest) async throws -> (Data, URLResponse)
-}
-
-extension URLSession: AnthropicHTTPSession {}
-
-/// Minimal transport contract for Anthropic Messages requests.
-public protocol AnthropicMessagesTransport: Sendable {
-    func createMessage(_ request: AnthropicMessagesRequest) async throws -> AnthropicMessageResponse
-}
-
-/// Lower-level builder that converts ``AnthropicMessagesRequest`` into `URLRequest`.
-public struct AnthropicMessagesRequestBuilder: Sendable {
-    public let configuration: AnthropicAPIConfiguration
-
-    /// Creates a request builder with transport configuration.
-    /// - Parameter configuration: HTTP settings used when generating `URLRequest` values.
-    public init(configuration: AnthropicAPIConfiguration) {
-        self.configuration = configuration
-    }
-
-    /// Builds a JSON Messages request.
-    /// - Parameter request: Low-level Anthropic request payload.
-    /// - Returns: A configured `URLRequest` ready for execution.
-    /// - Throws: An error if the request body cannot be encoded.
-    public func makeURLRequest(for request: AnthropicMessagesRequest) throws -> URLRequest {
-        let endpoint = configuration.baseURL.appendingPathComponent("messages")
-        var urlRequest = URLRequest(url: endpoint)
-        urlRequest.httpMethod = "POST"
-        urlRequest.setValue(configuration.apiKey, forHTTPHeaderField: "x-api-key")
-        urlRequest.setValue(configuration.version, forHTTPHeaderField: "anthropic-version")
-        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let timeoutInterval = configuration.transport.timeoutInterval {
-            urlRequest.timeoutInterval = timeoutInterval
-        }
-        if let userAgent = configuration.transport.userAgent ?? configuration.userAgent, !userAgent.isEmpty {
-            urlRequest.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        }
-        if let requestID = configuration.transport.requestID, !requestID.isEmpty {
-            urlRequest.setValue(requestID, forHTTPHeaderField: "X-Request-Id")
-        }
-        for (header, value) in configuration.transport.additionalHeaders {
-            urlRequest.setValue(value, forHTTPHeaderField: header)
-        }
-        urlRequest.httpBody = try JSONEncoder().encode(request)
-        return urlRequest
-    }
-
-    /// Builds a streaming Messages request with `stream = true`.
-    /// - Parameter request: Base low-level Messages request payload.
-    /// - Returns: A configured `URLRequest` ready for SSE execution.
-    /// - Throws: An error if the request body cannot be encoded.
-    public func makeStreamingURLRequest(for request: AnthropicMessagesRequest) throws -> URLRequest {
-        try makeURLRequest(
-            for: AnthropicMessagesRequest(
-                model: request.model,
-                maxTokens: request.maxTokens,
-                system: request.system,
-                messages: request.messages,
-                tools: request.tools?.map(\.toolDescriptor) ?? [],
-                stream: true
-            )
-        )
-    }
-}
-
-/// Concrete `URLSession` transport for Anthropic Messages requests.
-public struct URLSessionAnthropicMessagesTransport: AnthropicMessagesTransport, Sendable {
-    private let builder: AnthropicMessagesRequestBuilder
-    private let session: any AnthropicHTTPSession
-
-    /// Creates a `URLSession`-backed Anthropic Messages transport.
-    /// - Parameters:
-    ///   - configuration: HTTP settings used when generating requests.
-    ///   - session: Injectable HTTP session for transport customization or testing.
-    public init(
-        configuration: AnthropicAPIConfiguration,
-        session: any AnthropicHTTPSession = URLSession.shared
-    ) {
-        self.builder = AnthropicMessagesRequestBuilder(configuration: configuration)
-        self.session = session
-    }
-
-    /// Sends a request and decodes the Anthropic message response.
-    /// - Parameter request: Low-level Anthropic request payload.
-    /// - Returns: The decoded raw Anthropic response.
-    /// - Throws: An error if request encoding, network execution, or response decoding fails.
-    public func createMessage(_ request: AnthropicMessagesRequest) async throws -> AnthropicMessageResponse {
-        let retryPolicy = builder.configuration.transport.retryPolicy
-
-        for attempt in 1...retryPolicy.maxAttempts {
-            do {
-                let urlRequest = try builder.makeURLRequest(for: request)
-                let (data, response) = try await session.data(for: urlRequest)
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    throw AgentTransportError.invalidResponse(provider: .anthropic)
-                }
-                if retryPolicy.shouldRetry(afterAttempt: attempt, statusCode: httpResponse.statusCode) {
-                    try await sleepForRetryIfNeeded(retryPolicy.backoff)
-                    continue
-                }
-                guard (200..<300).contains(httpResponse.statusCode) else {
-                    throw AgentProviderError.unsuccessfulResponse(
-                        provider: .anthropic,
-                        statusCode: httpResponse.statusCode
-                    )
-                }
-
-                do {
-                    return try JSONDecoder().decode(AnthropicMessageResponse.self, from: data)
-                } catch {
-                    throw AgentDecodingError.responseBody(
-                        provider: .anthropic,
-                        description: String(describing: error)
-                    )
-                }
-            } catch let error as AgentProviderError {
-                throw error
-            } catch let error as AgentTransportError {
-                if retryPolicy.shouldRetry(afterAttempt: attempt) {
-                    try await sleepForRetryIfNeeded(retryPolicy.backoff)
-                    continue
-                }
-                throw error
-            } catch let error as AgentDecodingError {
-                throw error
-            } catch {
-                let mappedError = AgentTransportError.requestFailed(
-                    provider: .anthropic,
-                    description: String(describing: error)
-                )
-                if retryPolicy.shouldRetry(afterAttempt: attempt) {
-                    try await sleepForRetryIfNeeded(retryPolicy.backoff)
-                    continue
-                }
-                throw mappedError
-            }
-        }
-
-        throw AgentTransportError.requestFailed(
-            provider: .anthropic,
-            description: "request exhausted retry policy"
-        )
-    }
-}
-
-private func sleepForRetryIfNeeded(_ strategy: AgentHTTPBackoffStrategy) async throws {
-    guard let delay = strategy.delayDuration() else {
-        return
-    }
-    try await Task.sleep(for: delay)
-}
-
-public enum AnthropicStopReason: String, Codable, Equatable, Sendable {
-    case endTurn = "end_turn"
-    case maxTokens = "max_tokens"
-    case stopSequence = "stop_sequence"
-    case toolUse = "tool_use"
-    case pauseTurn = "pause_turn"
-    case refusal
-    case modelContextWindowExceeded = "model_context_window_exceeded"
-}
-
-private func decodeAnthropicStopReasonIfPresent(
-    from container: KeyedDecodingContainer<AnthropicMessageResponse.CodingKeys>,
-    forKey key: AnthropicMessageResponse.CodingKeys
-) throws -> AnthropicStopReason? {
-    let rawValue = try container.decodeIfPresent(String.self, forKey: key)?
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-    guard let rawValue, !rawValue.isEmpty else {
-        return nil
-    }
-    return AnthropicStopReason(rawValue: rawValue)
-}
-
-public struct AnthropicUsage: Codable, Equatable, Sendable {
-    public var inputTokens: Int
-    public var outputTokens: Int
-
-    /// Creates an Anthropic token-usage payload.
-    /// - Parameters:
-    ///   - inputTokens: Input tokens counted by the provider.
-    ///   - outputTokens: Output tokens counted by the provider.
-    public init(inputTokens: Int, outputTokens: Int) {
-        self.inputTokens = inputTokens
-        self.outputTokens = outputTokens
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case inputTokens = "input_tokens"
-        case outputTokens = "output_tokens"
-    }
-}
-
-/// Raw response payload returned by the Anthropic Messages API.
-public struct AnthropicMessageResponse: Codable, Equatable, Sendable {
-    public var id: String
-    public var model: String
-    public var role: AnthropicMessageRole
-    public var content: [AnthropicContentBlock]
-    public var stopReason: AnthropicStopReason?
-    public var stopSequence: String?
-    public var usage: AnthropicUsage
-
-    /// Creates a raw Anthropic response payload.
-    /// - Parameters:
-    ///   - id: Provider response identifier.
-    ///   - model: Model identifier that produced the response.
-    ///   - role: Provider role associated with the response.
-    ///   - content: Raw content blocks returned by the provider.
-    ///   - stopReason: Optional provider stop reason.
-    ///   - stopSequence: Optional provider stop sequence.
-    ///   - usage: Token usage reported by the provider.
-    public init(
-        id: String,
-        model: String,
-        role: AnthropicMessageRole,
-        content: [AnthropicContentBlock],
-        stopReason: AnthropicStopReason?,
-        stopSequence: String?,
-        usage: AnthropicUsage
-    ) {
-        self.id = id
-        self.model = model
-        self.role = role
-        self.content = content
-        self.stopReason = stopReason
-        self.stopSequence = stopSequence
-        self.usage = usage
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case model
-        case role
-        case content
-        case stopReason = "stop_reason"
-        case stopSequence = "stop_sequence"
-        case usage
-    }
-
-    public init(from decoder: any Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(String.self, forKey: .id)
-        model = try container.decode(String.self, forKey: .model)
-        role = try container.decode(AnthropicMessageRole.self, forKey: .role)
-        content = try container.decode([AnthropicContentBlock].self, forKey: .content)
-        stopReason = try decodeAnthropicStopReasonIfPresent(from: container, forKey: .stopReason)
-        stopSequence = try container.decodeIfPresent(String.self, forKey: .stopSequence)
-        usage = try container.decode(AnthropicUsage.self, forKey: .usage)
-    }
-}
 
 /// Provider-neutral representation of an Anthropic tool call.
 public struct AnthropicToolCall: Equatable, Sendable {
@@ -366,8 +84,13 @@ public extension AnthropicMessageResponse {
             switch block {
             case .text(let text):
                 parts.append(.text(text))
+            case .textWithCitations(let textBlock):
+                parts.append(.text(textBlock.text))
 
             case .toolUse(let toolUse):
+                guard !toolUse.isBuiltInWebSearchCompatibilityTrace else {
+                    continue
+                }
                 toolCalls.append(
                     AnthropicToolCall(
                         callID: toolUse.id,
@@ -389,6 +112,8 @@ public extension AnthropicMessageResponse {
                     continue
                 }
                 parts.append(.text(thinkingText))
+            case .serverToolUse, .webSearchToolResult:
+                continue
             }
         }
 
@@ -495,7 +220,7 @@ public struct AnthropicMessagesClient: Sendable {
                     AnthropicMessage(role: .assistant, content: response.content),
                     followUpMessage,
                 ],
-                tools: currentRequest.tools?.map(\.toolDescriptor) ?? []
+                tools: currentRequest.tools ?? []
             )
             remainingIterations -= 1
         }
@@ -611,7 +336,7 @@ private extension AnthropicMessagesClient {
                     AnthropicMessage(role: .assistant, content: response.content),
                     followUpMessage,
                 ],
-                tools: currentRequest.tools?.map(\.toolDescriptor) ?? []
+                tools: currentRequest.tools ?? []
             )
             remainingIterations -= 1
         }
@@ -660,7 +385,7 @@ private extension AnthropicMessagesClient {
                                 AnthropicMessage(role: .assistant, content: response.content),
                                 followUpMessage,
                             ],
-                            tools: currentRequest.tools?.map(\.toolDescriptor) ?? [],
+                            tools: currentRequest.tools ?? [],
                             stream: true
                         )
                         remainingIterations -= 1
@@ -789,15 +514,24 @@ private struct AnthropicStreamingToolUseState {
     var partialJSON: String
 }
 
+private struct AnthropicStreamingServerToolUseState {
+    var id: String
+    var name: String
+    var input: [String: ToolValue]
+    var partialJSON: String
+}
+
 private struct AnthropicStreamingProjectionAccumulator {
     var projectionOptions: AnthropicProjectionOptions
     var initialMessage: AnthropicMessageResponse?
     var stopReason: AnthropicStopReason?
     var stopSequence: String?
     var usage: AnthropicUsage?
-    var textBlocks: [Int: String] = [:]
+    var textBlocks: [Int: AnthropicTextBlock] = [:]
     var thinkingBlocks: [Int: AnthropicThinkingBlock] = [:]
     var toolUseBlocks: [Int: AnthropicStreamingToolUseState] = [:]
+    var serverToolUseBlocks: [Int: AnthropicStreamingServerToolUseState] = [:]
+    var webSearchResultBlocks: [Int: AnthropicWebSearchToolResult] = [:]
     var completedBlocks: [Int: AnthropicContentBlock] = [:]
     var messageStopped = false
 
@@ -811,7 +545,10 @@ private struct AnthropicStreamingProjectionAccumulator {
         case .contentBlockStart(let event):
             switch event.contentBlock.type {
             case "text":
-                textBlocks[event.index] = event.contentBlock.text ?? ""
+                textBlocks[event.index] = .init(
+                    text: event.contentBlock.text ?? "",
+                    citations: event.contentBlock.citations
+                )
             case "thinking":
                 thinkingBlocks[event.index] = .init(
                     thinking: event.contentBlock.thinking,
@@ -824,6 +561,23 @@ private struct AnthropicStreamingProjectionAccumulator {
                     input: event.contentBlock.input ?? [:],
                     partialJSON: ""
                 )
+            case "server_tool_use":
+                serverToolUseBlocks[event.index] = .init(
+                    id: event.contentBlock.id ?? "",
+                    name: event.contentBlock.name ?? "",
+                    input: event.contentBlock.input ?? [:],
+                    partialJSON: ""
+                )
+            case "web_search_tool_result":
+                if
+                    let toolUseID = event.contentBlock.toolUseID,
+                    let content = event.contentBlock.webSearchResultContent
+                {
+                    webSearchResultBlocks[event.index] = .init(
+                        toolUseID: toolUseID,
+                        content: content
+                    )
+                }
             default:
                 break
             }
@@ -833,11 +587,23 @@ private struct AnthropicStreamingProjectionAccumulator {
             switch event.delta.type {
             case "text_delta":
                 let delta = event.delta.text ?? ""
-                textBlocks[event.index, default: ""].append(delta)
+                textBlocks[event.index, default: .init(text: "")]
+                    .text
+                    .append(delta)
                 return delta.isEmpty ? [] : [.textDelta(delta)]
+
+            case "citations_delta":
+                guard let citation = event.delta.citation else {
+                    return []
+                }
+                var textBlock = textBlocks[event.index, default: .init(text: "")]
+                textBlock.citations = (textBlock.citations ?? []) + [citation]
+                textBlocks[event.index] = textBlock
+                return []
 
             case "input_json_delta":
                 toolUseBlocks[event.index]?.partialJSON.append(event.delta.partialJSON ?? "")
+                serverToolUseBlocks[event.index]?.partialJSON.append(event.delta.partialJSON ?? "")
                 return []
 
             case "thinking_delta":
@@ -857,8 +623,12 @@ private struct AnthropicStreamingProjectionAccumulator {
             }
 
         case .contentBlockStop(let event):
-            if let text = textBlocks[event.index] {
-                completedBlocks[event.index] = .text(text)
+            if let textBlock = textBlocks.removeValue(forKey: event.index) {
+                if let citations = textBlock.citations, !citations.isEmpty {
+                    completedBlocks[event.index] = .textWithCitations(textBlock)
+                } else {
+                    completedBlocks[event.index] = .text(textBlock.text)
+                }
             }
 
             if let thinking = thinkingBlocks.removeValue(forKey: event.index) {
@@ -876,6 +646,9 @@ private struct AnthropicStreamingProjectionAccumulator {
                     input: parsedInput
                 )
                 completedBlocks[event.index] = .toolUse(block)
+                guard !block.isBuiltInWebSearchCompatibilityTrace else {
+                    return []
+                }
                 return [
                     .toolCall(
                         .init(
@@ -887,6 +660,24 @@ private struct AnthropicStreamingProjectionAccumulator {
                         )
                     ),
                 ]
+            }
+
+            if let serverToolUse = serverToolUseBlocks.removeValue(forKey: event.index) {
+                let parsedInput = try parseStreamingToolInput(
+                    partialJSON: serverToolUse.partialJSON,
+                    fallback: serverToolUse.input
+                )
+                completedBlocks[event.index] = .serverToolUse(
+                    .init(
+                        id: serverToolUse.id,
+                        name: serverToolUse.name,
+                        input: parsedInput
+                    )
+                )
+            }
+
+            if let webSearchResult = webSearchResultBlocks.removeValue(forKey: event.index) {
+                completedBlocks[event.index] = .webSearchToolResult(webSearchResult)
             }
 
             return []
@@ -958,6 +749,12 @@ private extension AnthropicContentBlock {
     }
 }
 
+private extension AnthropicToolUse {
+    var isBuiltInWebSearchCompatibilityTrace: Bool {
+        name == "web_search"
+    }
+}
+
 private func parseStreamingToolInput(
     partialJSON: String,
     fallback: [String: ToolValue]
@@ -1002,39 +799,6 @@ private func convertStreamingToolValue(_ value: Any) throws -> ToolValue {
         return .null
     default:
         throw AgentStreamError.eventDecodingFailed(provider: .anthropic)
-    }
-}
-
-private extension AnthropicTool {
-    var toolDescriptor: ToolDescriptor {
-        ToolDescriptor.remote(
-            name: name,
-            transport: "",
-            inputSchema: inputSchema.toolInputSchema,
-            description: description
-        )
-    }
-}
-
-private extension AnthropicToolSchema {
-    var toolInputSchema: ToolInputSchema {
-        switch self {
-        case .string:
-            return .string
-        case .integer:
-            return .integer
-        case .number:
-            return .number
-        case .boolean:
-            return .boolean
-        case .array(let items):
-            return .array(items: items.toolInputSchema)
-        case .object(let properties, let required):
-            return .object(
-                properties: properties.mapValues(\.toolInputSchema),
-                required: required
-            )
-        }
     }
 }
 
@@ -1099,10 +863,7 @@ extension AnthropicToolJSONValue: Codable {
             return
         }
 
-        throw DecodingError.dataCorruptedError(
-            in: container,
-            debugDescription: "unsupported tool JSON value"
-        )
+        throw DecodingError.dataCorruptedError(in: container, debugDescription: "unsupported tool JSON value")
     }
 
     func encode(to encoder: any Encoder) throws {

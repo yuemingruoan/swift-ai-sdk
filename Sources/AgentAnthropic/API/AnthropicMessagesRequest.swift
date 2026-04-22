@@ -27,20 +27,20 @@ public struct AnthropicMessagesRequest: Codable, Equatable, Sendable {
     ///   - maxTokens: Output token budget for the request.
     ///   - system: Optional top-level system instruction string.
     ///   - messages: Anthropic-native message payloads.
-    ///   - tools: Provider-neutral tool descriptors to expose to the model.
+    ///   - tools: Anthropic-native tool declarations to expose to the model.
     public init(
         model: String,
         maxTokens: Int,
         system: String? = nil,
         messages: [AnthropicMessage],
-        tools: [ToolDescriptor] = [],
+        tools: [AnthropicTool] = [],
         stream: Bool? = nil
     ) {
         self.model = model
         self.maxTokens = maxTokens
         self.system = system
         self.messages = messages
-        self.tools = tools.isEmpty ? nil : tools.map(AnthropicTool.init(descriptor:))
+        self.tools = tools.isEmpty ? nil : tools
         self.stream = stream
     }
 
@@ -87,7 +87,7 @@ public struct AnthropicMessagesRequest: Codable, Equatable, Sendable {
             maxTokens: maxTokens,
             system: systemSegments.isEmpty ? nil : systemSegments.joined(separator: "\n\n"),
             messages: anthropicMessages,
-            tools: tools,
+            tools: tools.map(AnthropicTool.init(descriptor:)),
             stream: stream
         )
     }
@@ -151,9 +151,12 @@ public struct AnthropicMessage: Codable, Equatable, Sendable {
 /// Content block payload accepted by Anthropic messages.
 public enum AnthropicContentBlock: Equatable, Sendable {
     case text(String)
+    case textWithCitations(AnthropicTextBlock)
     case toolUse(AnthropicToolUse)
     case toolResult(AnthropicToolResult)
     case thinking(AnthropicThinkingBlock)
+    case serverToolUse(AnthropicServerToolUse)
+    case webSearchToolResult(AnthropicWebSearchToolResult)
 }
 
 extension AnthropicContentBlock: Codable {
@@ -166,19 +169,30 @@ extension AnthropicContentBlock: Codable {
         case toolUse = "tool_use"
         case toolResult = "tool_result"
         case thinking
+        case serverToolUse = "server_tool_use"
+        case webSearchToolResult = "web_search_tool_result"
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         switch try container.decode(Kind.self, forKey: .type) {
         case .text:
-            self = .text(try AnthropicTextBlock(from: decoder).text)
+            let textBlock = try AnthropicTextBlock(from: decoder)
+            if let citations = textBlock.citations, !citations.isEmpty {
+                self = .textWithCitations(textBlock)
+            } else {
+                self = .text(textBlock.text)
+            }
         case .toolUse:
             self = .toolUse(try AnthropicToolUse(from: decoder))
         case .toolResult:
             self = .toolResult(try AnthropicToolResult(from: decoder))
         case .thinking:
             self = .thinking(try AnthropicThinkingBlock(from: decoder))
+        case .serverToolUse:
+            self = .serverToolUse(try AnthropicServerToolUse(from: decoder))
+        case .webSearchToolResult:
+            self = .webSearchToolResult(try AnthropicWebSearchToolResult(from: decoder))
         }
     }
 
@@ -186,19 +200,112 @@ extension AnthropicContentBlock: Codable {
         switch self {
         case .text(let text):
             try AnthropicTextBlock(text: text).encode(to: encoder)
+        case .textWithCitations(let textBlock):
+            try textBlock.encode(to: encoder)
         case .toolUse(let toolUse):
             try toolUse.encode(to: encoder)
         case .toolResult(let toolResult):
             try toolResult.encode(to: encoder)
         case .thinking(let thinking):
             try thinking.encode(to: encoder)
+        case .serverToolUse(let serverToolUse):
+            try serverToolUse.encode(to: encoder)
+        case .webSearchToolResult(let webSearchToolResult):
+            try webSearchToolResult.encode(to: encoder)
         }
     }
 }
 
-private struct AnthropicTextBlock: Codable, Equatable, Sendable {
-    var type = "text"
-    var text: String
+public struct AnthropicTextBlock: Codable, Equatable, Sendable {
+    public var type = "text"
+    public var text: String
+    public var citations: [AnthropicTextCitation]?
+
+    public init(text: String, citations: [AnthropicTextCitation]? = nil) {
+        self.text = text
+        self.citations = citations
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case text
+        case citations
+    }
+}
+
+/// Raw citation payload attached to Anthropic text blocks.
+public struct AnthropicTextCitation: Codable, Equatable, Sendable {
+    public var type: String
+    public var url: URL?
+    public var title: String?
+    public var encryptedIndex: String?
+    public var citedText: String?
+    public var source: String?
+    public var searchResultIndex: Int?
+    public var startBlockIndex: Int?
+    public var endBlockIndex: Int?
+    public var documentIndex: Int?
+    public var documentTitle: String?
+    public var fileID: String?
+    public var startPageNumber: Int?
+    public var endPageNumber: Int?
+    public var startCharIndex: Int?
+    public var endCharIndex: Int?
+
+    public init(
+        type: String,
+        url: URL? = nil,
+        title: String? = nil,
+        encryptedIndex: String? = nil,
+        citedText: String? = nil,
+        source: String? = nil,
+        searchResultIndex: Int? = nil,
+        startBlockIndex: Int? = nil,
+        endBlockIndex: Int? = nil,
+        documentIndex: Int? = nil,
+        documentTitle: String? = nil,
+        fileID: String? = nil,
+        startPageNumber: Int? = nil,
+        endPageNumber: Int? = nil,
+        startCharIndex: Int? = nil,
+        endCharIndex: Int? = nil
+    ) {
+        self.type = type
+        self.url = url
+        self.title = title
+        self.encryptedIndex = encryptedIndex
+        self.citedText = citedText
+        self.source = source
+        self.searchResultIndex = searchResultIndex
+        self.startBlockIndex = startBlockIndex
+        self.endBlockIndex = endBlockIndex
+        self.documentIndex = documentIndex
+        self.documentTitle = documentTitle
+        self.fileID = fileID
+        self.startPageNumber = startPageNumber
+        self.endPageNumber = endPageNumber
+        self.startCharIndex = startCharIndex
+        self.endCharIndex = endCharIndex
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case url
+        case title
+        case encryptedIndex = "encrypted_index"
+        case citedText = "cited_text"
+        case source
+        case searchResultIndex = "search_result_index"
+        case startBlockIndex = "start_block_index"
+        case endBlockIndex = "end_block_index"
+        case documentIndex = "document_index"
+        case documentTitle = "document_title"
+        case fileID = "file_id"
+        case startPageNumber = "start_page_number"
+        case endPageNumber = "end_page_number"
+        case startCharIndex = "start_char_index"
+        case endCharIndex = "end_char_index"
+    }
 }
 
 public struct AnthropicThinkingBlock: Codable, Equatable, Sendable {
@@ -269,6 +376,42 @@ public struct AnthropicToolUse: Codable, Equatable, Sendable {
     }
 }
 
+/// Provider-facing server-tool invocation block emitted by Anthropic.
+public struct AnthropicServerToolUse: Codable, Equatable, Sendable {
+    public var id: String
+    public var name: String
+    public var input: [String: ToolValue]
+
+    /// Creates a provider-facing server-tool invocation block.
+    public init(id: String, name: String, input: [String: ToolValue]) {
+        self.id = id
+        self.name = name
+        self.input = input
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case id
+        case name
+        case input
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        input = try container.decodeIfPresent([String: ToolValue].self, forKey: .input) ?? [:]
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode("server_tool_use", forKey: .type)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(input, forKey: .input)
+    }
+}
+
 /// Tool result block sent back to Anthropic after executing a tool call.
 public struct AnthropicToolResult: Codable, Equatable, Sendable {
     public var toolUseID: String
@@ -309,11 +452,140 @@ public struct AnthropicToolResult: Codable, Equatable, Sendable {
     }
 }
 
+/// Individual search result returned by Anthropic's built-in web search tool.
+public struct AnthropicWebSearchResult: Codable, Equatable, Sendable {
+    public var url: URL
+    public var title: String
+    public var encryptedContent: String?
+    public var pageAge: String?
+
+    /// Creates a raw Anthropic web search result.
+    public init(
+        url: URL,
+        title: String,
+        encryptedContent: String? = nil,
+        pageAge: String? = nil
+    ) {
+        self.url = url
+        self.title = title
+        self.encryptedContent = encryptedContent
+        self.pageAge = pageAge
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case url
+        case title
+        case encryptedContent = "encrypted_content"
+        case pageAge = "page_age"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        url = try container.decode(URL.self, forKey: .url)
+        title = try container.decode(String.self, forKey: .title)
+        encryptedContent = try container.decodeIfPresent(String.self, forKey: .encryptedContent)
+        pageAge = try container.decodeIfPresent(String.self, forKey: .pageAge)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode("web_search_result", forKey: .type)
+        try container.encode(url, forKey: .url)
+        try container.encode(title, forKey: .title)
+        try container.encodeIfPresent(encryptedContent, forKey: .encryptedContent)
+        try container.encodeIfPresent(pageAge, forKey: .pageAge)
+    }
+}
+
+/// Error payload returned when Anthropic web search fails inside a successful response.
+public struct AnthropicWebSearchToolResultError: Codable, Equatable, Sendable {
+    public var type: String
+    public var errorCode: String
+
+    /// Creates a raw Anthropic web-search error payload.
+    public init(type: String = "web_search_tool_result_error", errorCode: String) {
+        self.type = type
+        self.errorCode = errorCode
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case errorCode = "error_code"
+    }
+}
+
+/// Content payload carried by Anthropic web-search result blocks.
+public enum AnthropicWebSearchToolResultContent: Equatable, Sendable {
+    case results([AnthropicWebSearchResult])
+    case error(AnthropicWebSearchToolResultError)
+}
+
+extension AnthropicWebSearchToolResultContent: Codable {
+    public init(from decoder: any Decoder) throws {
+        let singleValue = try decoder.singleValueContainer()
+        if let results = try? singleValue.decode([AnthropicWebSearchResult].self) {
+            self = .results(results)
+            return
+        }
+        self = .error(try singleValue.decode(AnthropicWebSearchToolResultError.self))
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var singleValue = encoder.singleValueContainer()
+        switch self {
+        case .results(let results):
+            try singleValue.encode(results)
+        case .error(let error):
+            try singleValue.encode(error)
+        }
+    }
+}
+
+/// Provider-facing web-search result block emitted by Anthropic.
+public struct AnthropicWebSearchToolResult: Codable, Equatable, Sendable {
+    public var toolUseID: String
+    public var content: AnthropicWebSearchToolResultContent
+
+    /// Creates a raw Anthropic web-search result block.
+    public init(
+        toolUseID: String,
+        content: AnthropicWebSearchToolResultContent
+    ) {
+        self.toolUseID = toolUseID
+        self.content = content
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case toolUseID = "tool_use_id"
+        case content
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        toolUseID = try container.decode(String.self, forKey: .toolUseID)
+        content = try container.decode(AnthropicWebSearchToolResultContent.self, forKey: .content)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode("web_search_tool_result", forKey: .type)
+        try container.encode(toolUseID, forKey: .toolUseID)
+        try container.encode(content, forKey: .content)
+    }
+}
+
 /// Function tool declaration sent to the Anthropic Messages API.
 public struct AnthropicTool: Codable, Equatable, Sendable {
+    public var type: String?
     public var name: String
     public var description: String?
-    public var inputSchema: AnthropicToolSchema
+    public var inputSchema: AnthropicToolSchema?
+    public var maxUses: Int?
+    public var allowedDomains: [String]?
+    public var blockedDomains: [String]?
+    public var userLocation: AnthropicWebSearchUserLocation?
 
     /// Creates an Anthropic function tool declaration.
     /// - Parameters:
@@ -325,9 +597,14 @@ public struct AnthropicTool: Codable, Equatable, Sendable {
         description: String? = nil,
         inputSchema: AnthropicToolSchema
     ) {
+        self.type = nil
         self.name = name
         self.description = description
         self.inputSchema = inputSchema
+        self.maxUses = nil
+        self.allowedDomains = nil
+        self.blockedDomains = nil
+        self.userLocation = nil
     }
 
     /// Converts a provider-neutral ``ToolDescriptor`` into an Anthropic tool shape.
@@ -342,10 +619,84 @@ public struct AnthropicTool: Codable, Equatable, Sendable {
         )
     }
 
+    public static func webSearch(
+        version: AnthropicWebSearchToolType = .webSearch20250305,
+        maxUses: Int? = nil,
+        allowedDomains: [String]? = nil,
+        blockedDomains: [String]? = nil,
+        userLocation: AnthropicWebSearchUserLocation? = nil
+    ) -> Self {
+        .init(
+            type: version.rawValue,
+            name: "web_search",
+            description: nil,
+            inputSchema: nil,
+            maxUses: maxUses,
+            allowedDomains: allowedDomains,
+            blockedDomains: blockedDomains,
+            userLocation: userLocation
+        )
+    }
+
+    private init(
+        type: String?,
+        name: String,
+        description: String?,
+        inputSchema: AnthropicToolSchema?,
+        maxUses: Int?,
+        allowedDomains: [String]?,
+        blockedDomains: [String]?,
+        userLocation: AnthropicWebSearchUserLocation?
+    ) {
+        self.type = type
+        self.name = name
+        self.description = description
+        self.inputSchema = inputSchema
+        self.maxUses = maxUses
+        self.allowedDomains = allowedDomains
+        self.blockedDomains = blockedDomains
+        self.userLocation = userLocation
+    }
+
     enum CodingKeys: String, CodingKey {
+        case type
         case name
         case description
         case inputSchema = "input_schema"
+        case maxUses = "max_uses"
+        case allowedDomains = "allowed_domains"
+        case blockedDomains = "blocked_domains"
+        case userLocation = "user_location"
+    }
+}
+
+/// Version identifiers for Anthropic's built-in web search server tool.
+public enum AnthropicWebSearchToolType: String, Codable, Equatable, Sendable {
+    case webSearch20250305 = "web_search_20250305"
+    case webSearch20260209 = "web_search_20260209"
+}
+
+/// Approximate user location passed to Anthropic's built-in web search tool.
+public struct AnthropicWebSearchUserLocation: Codable, Equatable, Sendable {
+    public var type: String
+    public var city: String?
+    public var region: String?
+    public var country: String
+    public var timezone: String?
+
+    /// Creates an approximate user location for Anthropic web search.
+    public init(
+        type: String = "approximate",
+        city: String? = nil,
+        region: String? = nil,
+        country: String,
+        timezone: String? = nil
+    ) {
+        self.type = type
+        self.city = city
+        self.region = region
+        self.country = country
+        self.timezone = timezone
     }
 }
 

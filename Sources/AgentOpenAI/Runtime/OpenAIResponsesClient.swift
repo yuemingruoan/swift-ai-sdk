@@ -1,16 +1,6 @@
 import AgentCore
 import Foundation
-
-/// Minimal transport contract for non-streaming OpenAI Responses requests.
-public protocol OpenAIResponsesTransport: Sendable {
-    func createResponse(_ request: OpenAIResponseRequest) async throws -> OpenAIResponse
-}
-
-/// Follow-up strategy used after a model response emits tool calls.
-public enum OpenAIResponsesFollowUpStrategy: Equatable, Sendable {
-    case previousResponseID
-    case replayInput
-}
+import OpenAIResponsesAPI
 
 /// High-level facade for OpenAI Responses APIs and tool-loop orchestration.
 public struct OpenAIResponsesClient: Sendable {
@@ -581,6 +571,8 @@ private func replayedInputItems(from output: [OpenAIResponseOutputItem]) -> [Ope
                     arguments: functionCall.arguments
                 )
             )
+        case .webSearchCall(let webSearchCall):
+            .webSearchCall(webSearchCall)
         }
     }
 }

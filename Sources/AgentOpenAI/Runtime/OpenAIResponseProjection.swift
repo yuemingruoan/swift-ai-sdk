@@ -1,4 +1,5 @@
 import AgentCore
+import OpenAIResponsesAPI
 import Foundation
 
 public struct OpenAIResponseToolCall: Equatable, Sendable {
@@ -70,6 +71,8 @@ public extension OpenAIResponse {
                         )
                     )
                 )
+            case .webSearchCall:
+                continue
             }
         }
 

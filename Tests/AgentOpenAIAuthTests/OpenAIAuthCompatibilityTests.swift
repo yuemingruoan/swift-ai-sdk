@@ -1,12 +1,12 @@
-import AgentOpenAIAuth
-import AgentOpenAI
+import OpenAIAuthentication
+import OpenAIResponsesAPI
 import AgentCore
 import Foundation
 import Testing
 
 struct OpenAIAuthCompatibilityTests {
     @Test func auth_module_exposes_public_marker_type() {
-        _ = AgentOpenAIAuthModule.self
+        _ = OpenAIAuthenticationModule.self
     }
 
     @Test func external_token_provider_returns_configured_tokens() async throws {

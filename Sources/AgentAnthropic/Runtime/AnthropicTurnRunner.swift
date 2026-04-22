@@ -1,4 +1,5 @@
 import AgentCore
+import AnthropicMessagesAPI
 import Foundation
 
 /// Configuration for the high-level Anthropic turn runner.
