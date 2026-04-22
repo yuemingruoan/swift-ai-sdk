@@ -16,13 +16,14 @@ questions quickly:
 | OpenAI Realtime WebSocket | `OpenAIRealtimeRequestBuilder`, `OpenAIRealtimeWebSocketClient` | OpenAI | WebSocket | Realtime event loop and turn execution |
 | OpenAI Responses WebSocket | `OpenAIResponsesWebSocketRequestBuilder`, `URLSessionOpenAIResponsesWebSocketTransport` | OpenAI | WebSocket | Streamed Responses over WebSocket |
 | Direct Anthropic HTTP | `AnthropicMessagesRequestBuilder`, `URLSessionAnthropicMessagesTransport` | Anthropic | HTTP JSON | Messages request/response and tool loop |
+| Direct Anthropic SSE | `AnthropicMessagesRequestBuilder`, `URLSessionAnthropicMessagesStreamingTransport` | Anthropic | HTTP SSE | Streamed Messages events and streaming tool loop |
 | Authenticated OpenAI-compatible HTTP | `OpenAIAuthenticatedResponsesRequestBuilder`, `URLSessionOpenAIAuthenticatedResponsesTransport` | OpenAI-compatible | HTTP JSON | ChatGPT/Codex-style authenticated Responses |
 | Authenticated OpenAI-compatible SSE | `OpenAIAuthenticatedResponsesRequestBuilder`, `URLSessionOpenAIAuthenticatedResponsesStreamingTransport` | OpenAI-compatible | HTTP SSE | Authenticated streamed Responses |
 | Authenticated OpenAI-compatible WebSocket | `OpenAIAuthenticatedResponsesWebSocketRequestBuilder`, `URLSessionOpenAIAuthenticatedResponsesWebSocketTransport` | OpenAI-compatible | WebSocket | Authenticated streamed Responses over WebSocket |
 
 ## Configuration Matrix
 
-| Capability | Direct OpenAI HTTP/SSE | Direct Anthropic HTTP | OpenAI Realtime WebSocket | OpenAI Responses WebSocket | Authenticated OpenAI-compatible HTTP/SSE | Authenticated OpenAI-compatible WebSocket |
+| Capability | Direct OpenAI HTTP/SSE | Direct Anthropic HTTP/SSE | OpenAI Realtime WebSocket | OpenAI Responses WebSocket | Authenticated OpenAI-compatible HTTP/SSE | Authenticated OpenAI-compatible WebSocket |
 | --- | --- | --- | --- | --- | --- | --- |
 | Shared `AgentHTTPTransportConfiguration` | Yes | Yes | No | No | Yes | Header-oriented subset only |
 | `timeoutInterval` | Yes | Yes | No | No | Yes | No |
@@ -41,11 +42,11 @@ questions quickly:
 - you want the most neutral OpenAI Responses surface
 - you want the shared HTTP transport configuration directly
 
-### Use Anthropic HTTP when:
+### Use Anthropic HTTP or SSE when:
 
 - you are integrating Anthropic Messages today
-- you need request/response or tool-loop execution
-- you do not need Anthropic streaming yet
+- you need request/response, streaming, or tool-loop execution
+- you want the same shared HTTP transport configuration for JSON and SSE paths
 
 ### Use authenticated OpenAI-compatible transports when:
 
@@ -75,7 +76,7 @@ provider-shape mapping, not transport family choice.
 
 This matrix reflects current repository reality, not future intent:
 
-- Anthropic streaming is not yet present.
+- Anthropic Realtime is not yet present.
 - WebSocket families do not share the full HTTP transport config.
 - Authenticated families still expose additional compatibility knobs beyond the
   shared transport surface.

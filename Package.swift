@@ -147,6 +147,7 @@ let package = Package(
             name: "AgentCoreTests",
             dependencies: [
                 "AgentCore",
+                "AgentPersistence",
             ],
             path: "Tests/AgentCoreTests"
         ),

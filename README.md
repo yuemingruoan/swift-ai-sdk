@@ -13,8 +13,9 @@ provider-neutral core and provider-specific adapters layered on top.
 
 ## Status
 
-- `v0.1.0` was released on 2026-04-21 as the first public SwiftPM tag
-- `main` is the active development line for follow-up work such as `v0.1.1`
+- `v0.2.0` was released on 2026-04-22 as the current public SwiftPM baseline
+- `v0.1.0` remains the first public SwiftPM tag
+- `main` is the active development line for follow-up work such as `v0.3.0`
 - the repository does not have an installed external user base yet, so `0.x` releases may make breaking API changes while the public surface is still being tightened
 - breaking changes during `0.x` should be called out explicitly in `CHANGELOG.md` and GitHub Release notes
 - the current baseline is production-oriented infrastructure, not a feature-complete end-user SDK
@@ -22,17 +23,17 @@ provider-neutral core and provider-specific adapters layered on top.
 ### What works today
 
 - OpenAI Responses request/response, SSE streaming, and Realtime turn execution
-- Anthropic Messages request/response and tool-loop execution
+- Anthropic Messages request/response, SSE streaming, and tool-loop execution
 - provider-neutral multi-turn state via `AgentConversationState` and `AgentSessionRunner`
 - local and remote tools behind one execution contract
+- split runtime middleware for model request/response interception, tool authorization, message redaction, and structured audit events
 - in-memory and file-backed persistence, plus a recording runner wrapper
 - ChatGPT/Codex-style authenticated Responses transports and Apple Keychain token storage
 
 ### Not in scope yet
 
 - a built-in SwiftData adapter target
-- Anthropic streaming or Realtime support
-- policy or middleware interception beyond observational executor hooks
+- Anthropic Realtime support
 - a broader host-adapter matrix beyond the current examples
 
 ### Provider Feature Matrix
@@ -40,7 +41,7 @@ provider-neutral core and provider-specific adapters layered on top.
 | Capability | OpenAI | Anthropic |
 | --- | --- | --- |
 | Request / response | Yes | Yes |
-| Streaming | Yes, SSE Responses streaming | Not yet |
+| Streaming | Yes, SSE Responses streaming | Yes, SSE Messages streaming |
 | Realtime | Yes | Not yet |
 | Tool loop | Yes | Yes |
 | Auth helpers | Yes, ChatGPT/Codex-style authenticated transports | Not yet |
@@ -60,13 +61,13 @@ provider-neutral core and provider-specific adapters layered on top.
 
 ## Installation
 
-`v0.1.0` is the current public SwiftPM baseline:
+`v0.2.0` is the current public SwiftPM baseline:
 
 ```swift
 dependencies: [
     .package(
         url: "https://github.com/yuemingruoan/swift-ai-sdk.git",
-        from: "0.1.0"
+        from: "0.2.0"
     )
 ]
 ```
@@ -146,9 +147,10 @@ Examples:
 - `OpenAIResponseRequest` and `OpenAIResponseInputBuilder` for building raw Responses payloads
 - `OpenAIResponsesRequestBuilder`, `URLSessionOpenAIResponsesTransport`, and `URLSessionOpenAIResponsesStreamingTransport` for direct HTTP and SSE control
 - `OpenAIRealtimeRequestBuilder` and the Realtime WebSocket client types for lower-level event flows
-- `AnthropicMessagesRequest`, `AnthropicMessagesRequestBuilder`, and `URLSessionAnthropicMessagesTransport` for direct Anthropic request control
+- `AnthropicMessagesRequest`, `AnthropicMessagesRequestBuilder`, `URLSessionAnthropicMessagesTransport`, and `URLSessionAnthropicMessagesStreamingTransport` for direct Anthropic JSON and SSE control
 - `OpenAITokenProvider`, `OpenAIAuthenticatedResponsesRequestBuilder`, and authenticated transports for ChatGPT/Codex-style bearer flows
 - `AgentSessionStore`, `AgentTurnStore`, `FileAgentStore`, and persistence record mappers when the host needs direct persistence control
+- `AgentMiddlewareStack` plus split middleware protocols when the host needs request/response interception, tool authorization, message redaction, or structured audit recording
 
 ## SDK Error Taxonomy
 
@@ -161,7 +163,7 @@ persistence failures.
 | Provider | `AgentProviderError` | The provider returned a valid HTTP response with a non-2xx status code. |
 | Transport | `AgentTransportError` | The request could not be executed cleanly, the response was not a valid `HTTPURLResponse`, the connection was unavailable, or retries were exhausted. |
 | Decoding | `AgentDecodingError` | Request encoding, response JSON decoding, or provider-to-SDK projection failed. |
-| Runtime | `AgentRuntimeError` | A higher-level orchestration rule failed, such as tool-loop iteration limits. |
+| Runtime | `AgentRuntimeError` | A higher-level orchestration rule failed, such as tool-loop iteration limits or middleware-driven tool denial. |
 | Auth | `AgentAuthError` | Token lookup/refresh, OAuth callback, compatibility-profile auth, or secure storage failed. |
 | Stream | `AgentStreamError` | SSE or other streaming responses failed at the event/protocol layer. |
 | Persistence | `AgentPersistenceError` | File-backed state could not be read as valid persisted data or could not be written. |
@@ -197,7 +199,7 @@ let transportConfiguration = AgentHTTPTransportConfiguration(
         backoff: .constant(milliseconds: 500)
     ),
     additionalHeaders: ["X-Client-Name": "ExampleHost"],
-    userAgent: "ExampleHost/0.1.1",
+    userAgent: "ExampleHost/0.2.0",
     requestID: UUID().uuidString
 )
 
@@ -212,6 +214,14 @@ let openAITransport = URLSessionOpenAIResponsesTransport(
 )
 
 let anthropicTransport = URLSessionAnthropicMessagesTransport(
+    configuration: .init(
+        apiKey: anthropicKey,
+        transport: transportConfiguration
+    ),
+    session: session
+)
+
+let anthropicStreamingTransport = URLSessionAnthropicMessagesStreamingTransport(
     configuration: .init(
         apiKey: anthropicKey,
         transport: transportConfiguration
@@ -243,7 +253,7 @@ shared transport config: `additionalHeaders`, `userAgent`, and `requestID`.
 
 - `OpenAIResponsesExample` for the simplest OpenAI Responses text flow
 - `OpenAIToolLoopExample` for OpenAI tool-loop execution
-- `AnthropicToolLoopExample` for Anthropic tool-loop execution
+- `AnthropicToolLoopExample` for Anthropic tool-loop execution, optional SSE streaming, and middleware smoke testing
 - `SessionRunnerExample` for provider-neutral multi-turn state
 - `PersistenceExample` for persisted turn recording
 - `Examples/AppleHostExample` for a standalone macOS SwiftUI host app with Browser OAuth, Keychain storage, SwiftData persistence, and tool execution
@@ -254,21 +264,30 @@ Typical commands:
 swift run OpenAIResponsesExample "Write one sentence about Swift concurrency."
 swift run OpenAIToolLoopExample "What is the weather in Paris? Use the tool."
 swift run AnthropicToolLoopExample "What is the weather in Paris? Use the tool."
+ANTHROPIC_STREAM=true EXAMPLE_PRINT_AUDIT=true swift run AnthropicToolLoopExample "What is the weather in Paris? Use the tool."
+ANTHROPIC_STREAM=true EXAMPLE_DENY_TOOL=lookup_weather swift run AnthropicToolLoopExample "What is the weather in Paris? Use the tool."
+ANTHROPIC_INCLUDE_THINKING=true swift run AnthropicToolLoopExample "What is the weather in Paris? Use the tool."
 swift run SessionRunnerExample
 swift run PersistenceExample
 cd Examples/AppleHostExample && swift build --target AppleHostExample
 ```
 
+Anthropic raw responses and raw streaming events preserve provider `thinking`
+blocks. The convenience projection layer defaults to omitting them, and callers
+can opt back in through `AnthropicProjectionOptions.preserveThinking` or
+`AnthropicTurnRunnerConfiguration(..., projectionOptions: .preserveThinking)`.
+
 ## Documentation
 
 - the active docs set is indexed in [docs/README.md](docs/README.md)
 - public API entrypoints now use Swift-style doc comments
-- the documented surface covers both high-level APIs and lower-level builders, request models, and transports
+- the documented surface covers both high-level APIs and lower-level builders, request models, transports, runtime middleware, and Anthropic streaming raw/projection boundaries
 - the README now documents the SDK-facing error taxonomy and the shared HTTP transport configuration surface
 - conversion-layer failures remain intentionally provider-specific via `OpenAIConversionError` and `AnthropicConversionError`
 - a longer reference for these two topics lives in [docs/SDK_ERRORS_AND_TRANSPORT.md](docs/SDK_ERRORS_AND_TRANSPORT.md)
 - a host-facing error handling guide lives in [docs/ERROR_HANDLING_COOKBOOK.md](docs/ERROR_HANDLING_COOKBOOK.md)
 - a transport family comparison lives in [docs/TRANSPORT_FAMILY_MATRIX.md](docs/TRANSPORT_FAMILY_MATRIX.md)
+- a runtime middleware guide lives in [docs/MIDDLEWARE_GUIDE.md](docs/MIDDLEWARE_GUIDE.md)
 - release governance and tag conventions live in [docs/RELEASING.md](docs/RELEASING.md)
 - forward-looking version milestones live in [ROADMAP.md](ROADMAP.md)
 

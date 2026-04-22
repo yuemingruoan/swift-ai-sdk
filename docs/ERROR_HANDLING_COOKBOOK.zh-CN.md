@@ -159,4 +159,4 @@ auth 错误建议按子类型再拆：
 - 每个产品一定要用的重试次数
 - 遥测/埋点 schema 设计
 - provider-specific 的 moderation / abuse handling
-- 未来 roadmap 才会引入的 middleware / policy 行为
+- 现在已经存在的 runtime middleware / policy 行为，例如通过 `AgentRuntimeError` 暴露的 tool deny

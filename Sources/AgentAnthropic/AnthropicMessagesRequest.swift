@@ -19,6 +19,7 @@ public struct AnthropicMessagesRequest: Codable, Equatable, Sendable {
     public var system: String?
     public var messages: [AnthropicMessage]
     public var tools: [AnthropicTool]?
+    public var stream: Bool?
 
     /// Creates a request from Anthropic-native message values.
     /// - Parameters:
@@ -32,13 +33,15 @@ public struct AnthropicMessagesRequest: Codable, Equatable, Sendable {
         maxTokens: Int,
         system: String? = nil,
         messages: [AnthropicMessage],
-        tools: [ToolDescriptor] = []
+        tools: [ToolDescriptor] = [],
+        stream: Bool? = nil
     ) {
         self.model = model
         self.maxTokens = maxTokens
         self.system = system
         self.messages = messages
         self.tools = tools.isEmpty ? nil : tools.map(AnthropicTool.init(descriptor:))
+        self.stream = stream
     }
 
     /// Creates a request from provider-neutral messages and tool descriptors.
@@ -52,7 +55,8 @@ public struct AnthropicMessagesRequest: Codable, Equatable, Sendable {
         model: String,
         maxTokens: Int,
         messages: [AgentMessage],
-        tools: [ToolDescriptor] = []
+        tools: [ToolDescriptor] = [],
+        stream: Bool? = nil
     ) throws {
         var systemSegments: [String] = []
         var anthropicMessages: [AnthropicMessage] = []
@@ -83,7 +87,8 @@ public struct AnthropicMessagesRequest: Codable, Equatable, Sendable {
             maxTokens: maxTokens,
             system: systemSegments.isEmpty ? nil : systemSegments.joined(separator: "\n\n"),
             messages: anthropicMessages,
-            tools: tools
+            tools: tools,
+            stream: stream
         )
     }
 
@@ -93,6 +98,7 @@ public struct AnthropicMessagesRequest: Codable, Equatable, Sendable {
         case system
         case messages
         case tools
+        case stream
     }
 }
 
@@ -147,6 +153,7 @@ public enum AnthropicContentBlock: Equatable, Sendable {
     case text(String)
     case toolUse(AnthropicToolUse)
     case toolResult(AnthropicToolResult)
+    case thinking(AnthropicThinkingBlock)
 }
 
 extension AnthropicContentBlock: Codable {
@@ -158,6 +165,7 @@ extension AnthropicContentBlock: Codable {
         case text
         case toolUse = "tool_use"
         case toolResult = "tool_result"
+        case thinking
     }
 
     public init(from decoder: any Decoder) throws {
@@ -169,6 +177,8 @@ extension AnthropicContentBlock: Codable {
             self = .toolUse(try AnthropicToolUse(from: decoder))
         case .toolResult:
             self = .toolResult(try AnthropicToolResult(from: decoder))
+        case .thinking:
+            self = .thinking(try AnthropicThinkingBlock(from: decoder))
         }
     }
 
@@ -180,6 +190,8 @@ extension AnthropicContentBlock: Codable {
             try toolUse.encode(to: encoder)
         case .toolResult(let toolResult):
             try toolResult.encode(to: encoder)
+        case .thinking(let thinking):
+            try thinking.encode(to: encoder)
         }
     }
 }
@@ -187,6 +199,35 @@ extension AnthropicContentBlock: Codable {
 private struct AnthropicTextBlock: Codable, Equatable, Sendable {
     var type = "text"
     var text: String
+}
+
+public struct AnthropicThinkingBlock: Codable, Equatable, Sendable {
+    public var thinking: String?
+    public var signature: String?
+
+    public init(thinking: String? = nil, signature: String? = nil) {
+        self.thinking = thinking
+        self.signature = signature
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case thinking
+        case signature
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        thinking = try container.decodeIfPresent(String.self, forKey: .thinking)
+        signature = try container.decodeIfPresent(String.self, forKey: .signature)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode("thinking", forKey: .type)
+        try container.encodeIfPresent(thinking, forKey: .thinking)
+        try container.encodeIfPresent(signature, forKey: .signature)
+    }
 }
 
 public struct AnthropicToolUse: Codable, Equatable, Sendable {

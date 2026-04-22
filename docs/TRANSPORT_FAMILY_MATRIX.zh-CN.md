@@ -14,13 +14,14 @@
 | OpenAI Realtime WebSocket | `OpenAIRealtimeRequestBuilder`、`OpenAIRealtimeWebSocketClient` | OpenAI | WebSocket | Realtime event loop 与 turn execution |
 | OpenAI Responses WebSocket | `OpenAIResponsesWebSocketRequestBuilder`、`URLSessionOpenAIResponsesWebSocketTransport` | OpenAI | WebSocket | 通过 WebSocket 拉流的 Responses |
 | 直连 Anthropic HTTP | `AnthropicMessagesRequestBuilder`、`URLSessionAnthropicMessagesTransport` | Anthropic | HTTP JSON | Messages request/response 与 tool loop |
+| 直连 Anthropic SSE | `AnthropicMessagesRequestBuilder`、`URLSessionAnthropicMessagesStreamingTransport` | Anthropic | HTTP SSE | 流式 Messages event 与 streaming tool loop |
 | Authenticated OpenAI-compatible HTTP | `OpenAIAuthenticatedResponsesRequestBuilder`、`URLSessionOpenAIAuthenticatedResponsesTransport` | OpenAI-compatible | HTTP JSON | ChatGPT/Codex 风格 authenticated Responses |
 | Authenticated OpenAI-compatible SSE | `OpenAIAuthenticatedResponsesRequestBuilder`、`URLSessionOpenAIAuthenticatedResponsesStreamingTransport` | OpenAI-compatible | HTTP SSE | authenticated 流式 Responses |
 | Authenticated OpenAI-compatible WebSocket | `OpenAIAuthenticatedResponsesWebSocketRequestBuilder`、`URLSessionOpenAIAuthenticatedResponsesWebSocketTransport` | OpenAI-compatible | WebSocket | authenticated 的 WebSocket Responses |
 
 ## 配置矩阵
 
-| 能力 | 直连 OpenAI HTTP/SSE | 直连 Anthropic HTTP | OpenAI Realtime WebSocket | OpenAI Responses WebSocket | Authenticated OpenAI-compatible HTTP/SSE | Authenticated OpenAI-compatible WebSocket |
+| 能力 | 直连 OpenAI HTTP/SSE | 直连 Anthropic HTTP/SSE | OpenAI Realtime WebSocket | OpenAI Responses WebSocket | Authenticated OpenAI-compatible HTTP/SSE | Authenticated OpenAI-compatible WebSocket |
 | --- | --- | --- | --- | --- | --- | --- |
 | 共享 `AgentHTTPTransportConfiguration` | 是 | 是 | 否 | 否 | 是 | 只复用 header 相关子集 |
 | `timeoutInterval` | 是 | 是 | 否 | 否 | 是 | 否 |
@@ -39,11 +40,11 @@
 - 你想直接使用最中性的 OpenAI Responses surface
 - 你希望完整使用共享 HTTP transport 配置
 
-### 适合 Anthropic HTTP 的情况
+### 适合 Anthropic HTTP / SSE 的情况
 
 - 你今天接的是 Anthropic Messages
-- 你要的是 request/response 或 tool-loop
-- 你当前不需要 Anthropic streaming
+- 你要的是 request/response、streaming 或 tool-loop
+- 你希望 JSON 和 SSE 路径都复用同一层共享 HTTP transport 配置
 
 ### 适合 authenticated OpenAI-compatible transport 的情况
 
@@ -73,7 +74,7 @@ transport family 的选择问题。
 
 这份矩阵描述的是仓库现状，不是未来承诺：
 
-- 还没有 Anthropic streaming。
+- 还没有 Anthropic Realtime。
 - WebSocket family 还没有和 HTTP family 共用完整 transport config。
 - authenticated family 仍然暴露一些共享 transport 配置之外的 compatibility 字段。
 - 这份矩阵只聚焦 transport，不替代 README 里的 provider capability matrix。

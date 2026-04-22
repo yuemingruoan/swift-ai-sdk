@@ -1,15 +1,16 @@
 # Releasing swift-ai-sdk
 
-`v0.1.0` was released on 2026-04-21 as the first public SwiftPM tag. This
-document now defines how follow-up releases should be prepared and published.
+`v0.2.0` was released on 2026-04-22 as the current public SwiftPM baseline.
+`v0.1.0` remains the first public SwiftPM tag. This document defines how
+follow-up releases should be prepared and published.
 
 ## Version Naming Rules
 
-- Git and GitHub Releases use `vX.Y.Z` tags such as `v0.1.1`
+- Git and GitHub Releases use `vX.Y.Z` tags such as `v0.2.0`
 - SwiftPM installation examples keep bare semantic versions such as
-  `from: "0.1.0"`
+  `from: "0.2.0"`
 - `CHANGELOG.md` headings should match the Git tag format, for example
-  `[v0.1.1]`
+  `[v0.2.0]`
 
 ## Release Intent
 
@@ -50,11 +51,11 @@ Before creating a tag:
    ```bash
    git checkout main
    git pull --ff-only origin main
-   git tag v0.1.1
-   git push origin v0.1.1
+   git tag v0.2.0
+   git push origin v0.2.0
    ```
 
-5. Create the GitHub Release for `v0.1.1` and use the changelog section as the
+5. Create the GitHub Release for `v0.2.0` and use the changelog section as the
    release notes.
 
 ## Suggested Release Notes Structure

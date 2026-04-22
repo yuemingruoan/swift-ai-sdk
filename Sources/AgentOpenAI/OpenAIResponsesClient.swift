@@ -207,15 +207,12 @@ public struct OpenAIResponsesClient: Sendable {
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    let projection = try await resolveToolCalls(
+                    try await streamResolvedResponse(
                         request,
                         using: executor,
-                        maxIterations: maxIterations
+                        maxIterations: maxIterations,
+                        into: continuation
                     )
-                    for event in projection.agentStreamEvents() {
-                        continuation.yield(event)
-                    }
-                    continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
                 }
@@ -357,6 +354,41 @@ public struct OpenAIResponsesStreamingClient: Sendable {
 }
 
 private extension OpenAIResponsesClient {
+    func streamResolvedResponse(
+        _ request: OpenAIResponseRequest,
+        using executor: ToolExecutor,
+        maxIterations: Int,
+        into continuation: AsyncThrowingStream<AgentStreamEvent, Error>.Continuation
+    ) async throws {
+        var remainingIterations = maxIterations
+        var currentRequest = request
+
+        while true {
+            guard remainingIterations > 0 else {
+                throw AgentRuntimeError.toolCallLimitExceeded(provider: .openAI, maxIterations: maxIterations)
+            }
+
+            let response = try await createResponse(currentRequest)
+            let projection = try response.projectedOutput()
+            for event in projection.agentStreamEvents() {
+                continuation.yield(event)
+            }
+
+            guard !projection.toolCalls.isEmpty else {
+                continuation.finish()
+                return
+            }
+
+            currentRequest = try await followUpRequest(
+                from: currentRequest,
+                response: response,
+                toolCalls: projection.toolCalls,
+                using: executor
+            )
+            remainingIterations -= 1
+        }
+    }
+
     func streamResolvedResponse(
         _ request: OpenAIResponseRequest,
         transport: any OpenAIResponsesStreamingTransport,

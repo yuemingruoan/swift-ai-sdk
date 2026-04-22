@@ -7,6 +7,7 @@ public struct RecordingAgentTurnRunner<Base: AgentTurnRunner>: AgentTurnRunner {
     public let session: AgentSession
     public let sessionStore: any AgentSessionStore
     public let turnStore: any AgentTurnStore
+    public let middleware: AgentMiddlewareStack
 
     /// Creates a recording wrapper around an existing turn runner.
     /// - Parameters:
@@ -14,16 +15,19 @@ public struct RecordingAgentTurnRunner<Base: AgentTurnRunner>: AgentTurnRunner {
     ///   - session: Session identity used when persisting completed turns.
     ///   - sessionStore: Store that persists session metadata.
     ///   - turnStore: Store that persists completed turns.
+    ///   - middleware: Shared middleware stack used for redaction and audit.
     public init(
         base: Base,
         session: AgentSession,
         sessionStore: any AgentSessionStore,
-        turnStore: any AgentTurnStore
+        turnStore: any AgentTurnStore,
+        middleware: AgentMiddlewareStack = AgentMiddlewareStack()
     ) {
         self.base = base
         self.session = session
         self.sessionStore = sessionStore
         self.turnStore = turnStore
+        self.middleware = middleware
     }
 
     /// Runs a turn, persists the completed session/turn data, and emits a final persisted turn event.
@@ -41,19 +45,38 @@ public struct RecordingAgentTurnRunner<Base: AgentTurnRunner>: AgentTurnRunner {
                     var completedMessages: [AgentMessage]?
                     for try await event in baseStream {
                         if case .messagesCompleted(let messages) = event {
-                            completedMessages = messages
+                            let redactedMessages = try await redactMessages(
+                                messages,
+                                reason: .messagesCompleted
+                            )
+                            completedMessages = redactedMessages
+                            continuation.yield(.messagesCompleted(redactedMessages))
+                            continue
                         }
                         continuation.yield(event)
                     }
 
                     if let completedMessages {
+                        let redactedInput = try await redactMessages(
+                            input,
+                            reason: .persistedTurn
+                        )
                         let turn = AgentTurn(
                             sessionID: session.id,
-                            input: input,
+                            input: redactedInput,
                             output: completedMessages
                         )
                         try await turnStore.appendTurn(turn)
                         if let persistedTurn = try await turnStore.turns(forSessionID: session.id).last {
+                            await middleware.recordAuditEvent(
+                                .messagesRedacted(
+                                    .init(
+                                        reason: .turnCompleted,
+                                        originalCount: turn.input.count + turn.output.count,
+                                        redactedCount: persistedTurn.input.count + persistedTurn.output.count
+                                    )
+                                )
+                            )
                             continuation.yield(.turnCompleted(persistedTurn))
                         }
                     }
@@ -68,5 +91,22 @@ public struct RecordingAgentTurnRunner<Base: AgentTurnRunner>: AgentTurnRunner {
                 task.cancel()
             }
         }
+    }
+
+    private func redactMessages(
+        _ messages: [AgentMessage],
+        reason: AgentMessageRedactionReason
+    ) async throws -> [AgentMessage] {
+        let redactedMessages = try await middleware.redactMessages(messages, reason: reason)
+        await middleware.recordAuditEvent(
+            .messagesRedacted(
+                .init(
+                    reason: reason,
+                    originalCount: messages.count,
+                    redactedCount: redactedMessages.count
+                )
+            )
+        )
+        return redactedMessages
     }
 }

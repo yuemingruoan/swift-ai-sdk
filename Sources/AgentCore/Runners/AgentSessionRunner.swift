@@ -9,11 +9,18 @@ public enum AgentSessionStreamEvent: Equatable, Sendable {
 /// Wraps a turn runner and updates ``AgentConversationState`` when a turn completes.
 public struct AgentSessionRunner<Base: AgentTurnRunner>: Sendable {
     public let base: Base
+    public let middleware: AgentMiddlewareStack
 
     /// Creates a session runner on top of a concrete turn runner.
-    /// - Parameter base: Underlying one-turn runner used for provider execution.
-    public init(base: Base) {
+    /// - Parameters:
+    ///   - base: Underlying one-turn runner used for provider execution.
+    ///   - middleware: Shared middleware stack used for redaction and audit.
+    public init(
+        base: Base,
+        middleware: AgentMiddlewareStack = AgentMiddlewareStack()
+    ) {
         self.base = base
+        self.middleware = middleware
     }
 
     /// Runs one turn using the current conversation history and emits an updated state at completion.
@@ -36,16 +43,26 @@ public struct AgentSessionRunner<Base: AgentTurnRunner>: Sendable {
 
                     for try await event in baseStream {
                         if case .messagesCompleted(let messages) = event {
-                            completedMessages = messages
+                            let redactedMessages = try await redactMessages(
+                                messages,
+                                reason: .messagesCompleted
+                            )
+                            completedMessages = redactedMessages
+                            continuation.yield(.event(.messagesCompleted(redactedMessages)))
+                            continue
                         }
                         continuation.yield(.event(event))
                     }
 
                     if let completedMessages {
+                        let redactedInput = try await redactMessages(
+                            input,
+                            reason: .stateUpdated
+                        )
                         continuation.yield(
                             .stateUpdated(
                                 state.appendingTurn(
-                                    input: input,
+                                    input: redactedInput,
                                     output: completedMessages
                                 )
                             )
@@ -62,5 +79,22 @@ public struct AgentSessionRunner<Base: AgentTurnRunner>: Sendable {
                 task.cancel()
             }
         }
+    }
+
+    private func redactMessages(
+        _ messages: [AgentMessage],
+        reason: AgentMessageRedactionReason
+    ) async throws -> [AgentMessage] {
+        let redactedMessages = try await middleware.redactMessages(messages, reason: reason)
+        await middleware.recordAuditEvent(
+            .messagesRedacted(
+                .init(
+                    reason: reason,
+                    originalCount: messages.count,
+                    redactedCount: redactedMessages.count
+                )
+            )
+        )
+        return redactedMessages
     }
 }

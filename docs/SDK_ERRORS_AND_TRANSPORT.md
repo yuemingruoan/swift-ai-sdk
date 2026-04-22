@@ -1,13 +1,13 @@
 # SDK Errors And Shared Transport Configuration
 
-This note documents the current `v0.1.1`-scope public surface for two topics
+This note documents the current public surface for two topics
 that SDK integrators routinely need to reason about:
 
 - the shared SDK-facing error taxonomy
 - the shared HTTP transport configuration used by direct OpenAI and Anthropic transports
 
 It is intentionally descriptive rather than aspirational. If a type or knob is
-not listed here, this document is not promising it for `v0.1.1`.
+not listed here, this document is not promising it for a given release.
 
 ## Error Taxonomy
 
@@ -19,7 +19,7 @@ without parsing provider-specific strings.
 | Provider | `AgentProviderError` | A provider returned a valid HTTP response with a non-success status. | `401`, `429`, or `500` from OpenAI or Anthropic after the transport completed normally. |
 | Transport | `AgentTransportError` | Request execution, connectivity, or response-shape failures below model decoding. | `URLSession` failure, missing `HTTPURLResponse`, disconnected realtime socket, retry policy exhaustion. |
 | Decoding | `AgentDecodingError` | Encoding outgoing requests, decoding incoming payloads, or projecting decoded provider payloads into SDK shapes. | JSON encode failure for a request body, JSON decode failure for a response body, response projection mismatch. |
-| Runtime | `AgentRuntimeError` | Multi-step orchestration above the raw provider transport. | Tool-loop iteration budget exceeded. |
+| Runtime | `AgentRuntimeError` | Multi-step orchestration above the raw provider transport. | Tool-loop iteration budget exceeded, tool call denied by runtime policy. |
 | Auth | `AgentAuthError` | Token providers, OAuth/browser flows, compatibility-profile auth, and secure token storage. | Missing refresh token, browser callback state mismatch, unsupported authorization method, Keychain failure. |
 | Stream | `AgentStreamError` | Streaming protocol failures after the request is accepted. | SSE event decoding failure, streamed response status failure, provider stream server error event. |
 | Persistence | `AgentPersistenceError` | File-backed persistence read/write failures. | Invalid persisted JSON, failed session or turn file write. |
@@ -61,6 +61,7 @@ transports:
 - `URLSessionOpenAIResponsesTransport`
 - `URLSessionOpenAIResponsesStreamingTransport`
 - `URLSessionAnthropicMessagesTransport`
+- `URLSessionAnthropicMessagesStreamingTransport`
 - `URLSessionOpenAIAuthenticatedResponsesTransport`
 - `URLSessionOpenAIAuthenticatedResponsesStreamingTransport`
 
@@ -91,7 +92,7 @@ let transportConfiguration = AgentHTTPTransportConfiguration(
         backoff: .constant(milliseconds: 500)
     ),
     additionalHeaders: ["X-Client-Name": "ExampleHost"],
-    userAgent: "ExampleHost/0.1.1",
+    userAgent: "ExampleHost/0.2.0",
     requestID: UUID().uuidString
 )
 
@@ -138,6 +139,7 @@ ephemeral `URLSession`, a custom protocol-backed session, or a test double:
 - `URLSessionOpenAIResponsesTransport(..., session: any OpenAIHTTPSession)`
 - `URLSessionOpenAIResponsesStreamingTransport(..., session: any OpenAIHTTPLineStreamingSession)`
 - `URLSessionAnthropicMessagesTransport(..., session: any AnthropicHTTPSession)`
+- `URLSessionAnthropicMessagesStreamingTransport(..., session: any AnthropicHTTPLineStreamingSession)`
 
 Authenticated OpenAI-compatible Responses transports also support injected
 sessions and now consume the same shared transport configuration:
@@ -160,11 +162,38 @@ builder does, however, reuse the header-oriented subset of
 
 It does not use HTTP-only knobs such as `timeoutInterval` or `retryPolicy`.
 
+## Middleware Note
+
+`AgentMiddlewareStack` lives above the raw transport layer. It governs model
+request/response interception, tool authorization, message redaction, and audit
+recording in the runtime layer, while `AgentHTTPTransportConfiguration`
+continues to describe the shared HTTP request-level knobs for direct
+OpenAI/Anthropic transports.
+
+## Anthropic Thinking Boundary
+
+Anthropic raw response surfaces preserve provider thinking blocks:
+
+- `AnthropicMessageResponse.content`
+- `AnthropicMessageStreamEvent`
+- `AnthropicMessagesClient.createMessage(_:)`
+- `AnthropicMessagesStreamingTransport.streamMessage(_:)`
+
+The convenience projection layer is where callers decide whether that thinking
+should stay in provider-neutral output:
+
+- `AnthropicMessageResponse.projectedOutput(options:)`
+- `AnthropicMessagesClient.createProjectedResponse(_:options:)`
+- `AnthropicMessagesClient.projectedResponseEvents(..., projectionOptions:)`
+- `AnthropicTurnRunnerConfiguration.projectionOptions`
+
+The current convenience default is `AnthropicProjectionOptions.omitThinking`.
+Callers that want projected thinking can opt into
+`AnthropicProjectionOptions.preserveThinking`.
+
 ## Out Of Scope For This Note
 
 This document does not promise:
 
-- future middleware or policy interception surfaces
 - observability APIs beyond the current request ID and user-agent hooks
-- Anthropic streaming configuration, which is not part of the current SDK surface
 - a future collapse of authenticated or WebSocket transport config into one universal transport type

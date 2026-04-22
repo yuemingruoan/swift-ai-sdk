@@ -174,6 +174,194 @@ struct AnthropicMessagesClientTests {
         ])
     }
 
+    @Test func response_projection_omits_thinking_blocks_by_default() throws {
+        let response = AnthropicMessageResponse(
+            id: "msg_thinking",
+            model: "claude-opus-4-6",
+            role: .assistant,
+            content: [
+                .thinking(.init(thinking: "internal")),
+                .text("Visible output"),
+            ],
+            stopReason: .endTurn,
+            stopSequence: nil,
+            usage: .init(inputTokens: 12, outputTokens: 8)
+        )
+
+        let projection = try response.projectedOutput()
+
+        #expect(projection.messages == [
+            AgentMessage(role: .assistant, parts: [.text("Visible output")]),
+        ])
+        #expect(projection.toolCalls.isEmpty)
+    }
+
+    @Test func response_projection_can_include_thinking_blocks_when_requested() throws {
+        let response = AnthropicMessageResponse(
+            id: "msg_thinking",
+            model: "claude-opus-4-6",
+            role: .assistant,
+            content: [
+                .thinking(.init(thinking: "internal")),
+                .text("Visible output"),
+            ],
+            stopReason: .endTurn,
+            stopSequence: nil,
+            usage: .init(inputTokens: 12, outputTokens: 8)
+        )
+
+        let projection = try response.projectedOutput(
+            options: .preserveThinking
+        )
+
+        #expect(projection.messages == [
+            AgentMessage(role: .assistant, parts: [.text("<thinking>internal</thinking>"), .text("Visible output")]),
+        ])
+        #expect(projection.toolCalls.isEmpty)
+    }
+
+    @Test func client_create_message_preserves_thinking_blocks_in_raw_response() async throws {
+        let client = AnthropicMessagesClient(
+            transport: StubAnthropicTransport(
+                responses: [
+                    AnthropicMessageResponse(
+                        id: "msg_client_raw_thinking",
+                        model: "claude-opus-4-6",
+                        role: .assistant,
+                        content: [
+                            .thinking(.init(thinking: "internal")),
+                            .text("Visible output"),
+                        ],
+                        stopReason: .endTurn,
+                        stopSequence: nil,
+                        usage: .init(inputTokens: 12, outputTokens: 8)
+                    ),
+                ]
+            )
+        )
+
+        let response = try await client.createMessage(
+            AnthropicMessagesRequest(
+                model: "claude-opus-4-6",
+                maxTokens: 128,
+                messages: [.userText("hello")]
+            )
+        )
+
+        #expect(response.content == [
+            .thinking(.init(thinking: "internal")),
+            .text("Visible output"),
+        ])
+    }
+
+    @Test func client_projected_response_omits_thinking_by_default() async throws {
+        let client = AnthropicMessagesClient(
+            transport: StubAnthropicTransport(
+                responses: [
+                    AnthropicMessageResponse(
+                        id: "msg_client_thinking",
+                        model: "claude-opus-4-6",
+                        role: .assistant,
+                        content: [
+                            .thinking(.init(thinking: "internal")),
+                            .text("Visible output"),
+                        ],
+                        stopReason: .endTurn,
+                        stopSequence: nil,
+                        usage: .init(inputTokens: 12, outputTokens: 8)
+                    ),
+                ]
+            )
+        )
+
+        let projection = try await client.createProjectedResponse(
+            AnthropicMessagesRequest(
+                model: "claude-opus-4-6",
+                maxTokens: 128,
+                messages: [.userText("hello")]
+            )
+        )
+
+        #expect(projection.messages == [
+            AgentMessage(role: .assistant, parts: [.text("Visible output")]),
+        ])
+        #expect(projection.toolCalls.isEmpty)
+    }
+
+    @Test func client_projected_response_can_include_thinking_when_requested() async throws {
+        let client = AnthropicMessagesClient(
+            transport: StubAnthropicTransport(
+                responses: [
+                    AnthropicMessageResponse(
+                        id: "msg_client_thinking",
+                        model: "claude-opus-4-6",
+                        role: .assistant,
+                        content: [
+                            .thinking(.init(thinking: "internal")),
+                            .text("Visible output"),
+                        ],
+                        stopReason: .endTurn,
+                        stopSequence: nil,
+                        usage: .init(inputTokens: 12, outputTokens: 8)
+                    ),
+                ]
+            )
+        )
+
+        let projection = try await client.createProjectedResponse(
+            AnthropicMessagesRequest(
+                model: "claude-opus-4-6",
+                maxTokens: 128,
+                messages: [.userText("hello")]
+            ),
+            options: .preserveThinking
+        )
+
+        #expect(projection.messages == [
+            AgentMessage(role: .assistant, parts: [.text("<thinking>internal</thinking>"), .text("Visible output")]),
+        ])
+        #expect(projection.toolCalls.isEmpty)
+    }
+
+    @Test func transport_decodes_empty_stop_reason_as_nil() async throws {
+        let session = RecordingAnthropicHTTPSession(
+            data: """
+            {
+              "id":"msg_empty_stop_reason",
+              "model":"claude-opus-4-6",
+              "role":"assistant",
+              "content":[{"type":"thinking"},{"type":"text","text":"hello"}],
+              "stop_reason":"",
+              "usage":{"input_tokens":10,"output_tokens":5}
+            }
+            """.data(using: .utf8)!,
+            response: HTTPURLResponse(
+                url: URL(string: "https://api.anthropic.com/v1/messages")!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+        )
+        let transport = URLSessionAnthropicMessagesTransport(
+            configuration: .init(apiKey: "sk-ant-test"),
+            session: session
+        )
+
+        let response = try await transport.createMessage(
+            AnthropicMessagesRequest(
+                model: "claude-opus-4-6",
+                maxTokens: 32,
+                messages: [.userText("hello")]
+            )
+        )
+
+        #expect(response.stopReason == nil)
+        #expect(response.content == [
+            .thinking(.init()),
+            .text("hello"),
+        ])
+    }
+
     @Test func client_can_resolve_tool_calls_with_executor() async throws {
         let transport = StubAnthropicTransport(
             responses: [
@@ -260,6 +448,206 @@ struct AnthropicMessagesClientTests {
                 )
             ),
         ])
+    }
+
+    @Test func client_streaming_projects_text_deltas_and_completed_messages() async throws {
+        let client = AnthropicMessagesClient(
+            transport: StubAnthropicTransport(responses: []),
+            streamingTransport: SequencedAnthropicStreamingTransport(
+                eventSequences: [[
+                    .messageStart(
+                        .init(
+                            message: .init(
+                                id: "msg_stream_1",
+                                model: "claude-sonnet-4-20250514",
+                                role: .assistant,
+                                content: [],
+                                stopReason: nil,
+                                stopSequence: nil,
+                                usage: .init(inputTokens: 10, outputTokens: 1)
+                            )
+                        )
+                    ),
+                    .contentBlockStart(.init(index: 0, contentBlock: .init(type: "text", text: ""))),
+                    .contentBlockDelta(.init(index: 0, delta: .init(type: "text_delta", text: "Hello"))),
+                    .contentBlockStop(.init(index: 0)),
+                    .messageDelta(.init(delta: .init(stopReason: .endTurn, stopSequence: nil), usage: .init(outputTokens: 5))),
+                    .messageStop,
+                ]]
+            )
+        )
+
+        var events: [AgentStreamEvent] = []
+        for try await event in client.projectedResponseEvents(
+            try AnthropicMessagesRequest(
+                model: "claude-sonnet-4-20250514",
+                maxTokens: 128,
+                messages: [.userText("hello")]
+            ),
+            stream: true
+        ) {
+            events.append(event)
+        }
+
+        #expect(events == [
+            .textDelta("Hello"),
+            .messagesCompleted([
+                .init(role: .assistant, parts: [.text("Hello")]),
+            ]),
+        ])
+    }
+
+    @Test func client_streaming_can_include_thinking_blocks_when_enabled() async throws {
+        let client = AnthropicMessagesClient(
+            transport: StubAnthropicTransport(responses: []),
+            streamingTransport: SequencedAnthropicStreamingTransport(
+                eventSequences: [[
+                    .messageStart(
+                        .init(
+                            message: .init(
+                                id: "msg_stream_thinking",
+                                model: "claude-opus-4-6",
+                                role: .assistant,
+                                content: [],
+                                stopReason: nil,
+                                stopSequence: nil,
+                                usage: .init(inputTokens: 10, outputTokens: 1)
+                            )
+                        )
+                    ),
+                    .contentBlockStart(.init(index: 0, contentBlock: .init(type: "thinking"))),
+                    .contentBlockDelta(.init(index: 0, delta: .init(type: "thinking_delta", thinking: "internal"))),
+                    .contentBlockStop(.init(index: 0)),
+                    .contentBlockStart(.init(index: 1, contentBlock: .init(type: "text", text: ""))),
+                    .contentBlockDelta(.init(index: 1, delta: .init(type: "text_delta", text: "Hello"))),
+                    .contentBlockStop(.init(index: 1)),
+                    .messageDelta(.init(delta: .init(stopReason: .endTurn, stopSequence: nil), usage: .init(outputTokens: 5))),
+                    .messageStop,
+                ]]
+            ),
+            projectionOptions: .preserveThinking
+        )
+
+        var events: [AgentStreamEvent] = []
+        for try await event in client.projectedResponseEvents(
+            try AnthropicMessagesRequest(
+                model: "claude-opus-4-6",
+                maxTokens: 128,
+                messages: [.userText("hello")]
+            ),
+            stream: true
+        ) {
+            events.append(event)
+        }
+
+        #expect(events == [
+            .textDelta("Hello"),
+            .messagesCompleted([
+                .init(role: .assistant, parts: [.text("<thinking>internal</thinking>"), .text("Hello")]),
+            ]),
+        ])
+    }
+
+    @Test func client_streaming_tool_loop_emits_tool_calls_and_follows_up_with_executor() async throws {
+        let tool = ToolDescriptor.remote(
+            name: "lookup_weather",
+            transport: "weather-api",
+            inputSchema: .object(
+                properties: ["city": .string],
+                required: ["city"]
+            ),
+            description: "Looks up the weather"
+        )
+        let streamingTransport = SequencedAnthropicStreamingTransport(
+            eventSequences: [
+                [
+                    .messageStart(
+                        .init(
+                            message: .init(
+                                id: "msg_stream_1",
+                                model: "claude-sonnet-4-20250514",
+                                role: .assistant,
+                                content: [],
+                                stopReason: nil,
+                                stopSequence: nil,
+                                usage: .init(inputTokens: 10, outputTokens: 1)
+                            )
+                        )
+                    ),
+                    .contentBlockStart(
+                        .init(
+                            index: 0,
+                            contentBlock: .init(type: "tool_use", id: "toolu_123", name: "lookup_weather", input: [:])
+                        )
+                    ),
+                    .contentBlockDelta(
+                        .init(index: 0, delta: .init(type: "input_json_delta", partialJSON: "{\"city\":\"Paris\"}"))
+                    ),
+                    .contentBlockStop(.init(index: 0)),
+                    .messageDelta(.init(delta: .init(stopReason: .toolUse, stopSequence: nil), usage: .init(outputTokens: 4))),
+                    .messageStop,
+                ],
+                [
+                    .messageStart(
+                        .init(
+                            message: .init(
+                                id: "msg_stream_2",
+                                model: "claude-sonnet-4-20250514",
+                                role: .assistant,
+                                content: [],
+                                stopReason: nil,
+                                stopSequence: nil,
+                                usage: .init(inputTokens: 18, outputTokens: 1)
+                            )
+                        )
+                    ),
+                    .contentBlockStart(.init(index: 0, contentBlock: .init(type: "text", text: ""))),
+                    .contentBlockDelta(.init(index: 0, delta: .init(type: "text_delta", text: "Paris is sunny."))),
+                    .contentBlockStop(.init(index: 0)),
+                    .messageDelta(.init(delta: .init(stopReason: .endTurn, stopSequence: nil), usage: .init(outputTokens: 7))),
+                    .messageStop,
+                ],
+            ]
+        )
+        let registry = ToolRegistry()
+        try await registry.register(tool)
+        let executor = ToolExecutor(registry: registry)
+        await executor.register(StubWeatherTransport())
+        let client = AnthropicMessagesClient(
+            transport: StubAnthropicTransport(responses: []),
+            streamingTransport: streamingTransport
+        )
+
+        var events: [AgentStreamEvent] = []
+        for try await event in client.projectedResponseEvents(
+            try AnthropicMessagesRequest(
+                model: "claude-sonnet-4-20250514",
+                maxTokens: 1024,
+                messages: [.userText("weather in Paris?")],
+                tools: [tool]
+            ),
+            using: executor,
+            stream: true
+        ) {
+            events.append(event)
+        }
+
+        #expect(events == [
+            .toolCall(
+                .init(
+                    callID: "toolu_123",
+                    invocation: .init(
+                        toolName: "lookup_weather",
+                        arguments: ["city": .string("Paris")]
+                    )
+                )
+            ),
+            .textDelta("Paris is sunny."),
+            .messagesCompleted([
+                .init(role: .assistant, parts: [.text("Paris is sunny.")]),
+            ]),
+        ])
+        #expect(streamingTransport.recordedRequests.count == 2)
     }
 
     @Test func transport_retries_retryable_status_codes_using_shared_retry_policy() async throws {
@@ -393,6 +781,37 @@ private actor StubAnthropicTransport: AnthropicMessagesTransport {
         let response = responses[index]
         index += 1
         return response
+    }
+}
+
+private final class SequencedAnthropicStreamingTransport: @unchecked Sendable, AnthropicMessagesStreamingTransport {
+    private let eventSequences: [[AnthropicMessageStreamEvent]]
+    private let lock = NSLock()
+    private var _recordedRequests: [AnthropicMessagesRequest] = []
+    private var index = 0
+
+    init(eventSequences: [[AnthropicMessageStreamEvent]]) {
+        self.eventSequences = eventSequences
+    }
+
+    var recordedRequests: [AnthropicMessagesRequest] {
+        lock.withLock { _recordedRequests }
+    }
+
+    func streamMessage(_ request: AnthropicMessagesRequest) -> AsyncThrowingStream<AnthropicMessageStreamEvent, Error> {
+        let events = lock.withLock { () -> [AnthropicMessageStreamEvent] in
+            _recordedRequests.append(request)
+            let events = eventSequences[index]
+            index += 1
+            return events
+        }
+
+        return AsyncThrowingStream { continuation in
+            for event in events {
+                continuation.yield(event)
+            }
+            continuation.finish()
+        }
     }
 }
 

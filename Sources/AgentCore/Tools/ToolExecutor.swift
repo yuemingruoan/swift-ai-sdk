@@ -11,6 +11,7 @@ public enum ToolExecutorError: Error, Equatable, Sendable {
 /// Resolves tool descriptors and dispatches invocations to local or remote implementations.
 public actor ToolExecutor {
     private let registry: ToolRegistry
+    private let middleware: AgentMiddlewareStack
     private var hooks: [any ToolExecutorHook]
     private var localExecutables: [String: any LocalToolExecutable] = [:]
     private var remoteTransports: [String: any RemoteToolTransport] = [:]
@@ -18,12 +19,15 @@ public actor ToolExecutor {
     /// Creates a tool executor with an optional preconfigured registry and hooks.
     /// - Parameters:
     ///   - registry: Registry used to resolve descriptors by tool name.
+    ///   - middleware: Shared middleware stack used for authorization and audit.
     ///   - hooks: Observational hooks notified before and after invocation.
     public init(
         registry: ToolRegistry = ToolRegistry(),
+        middleware: AgentMiddlewareStack = AgentMiddlewareStack(),
         hooks: [any ToolExecutorHook] = []
     ) {
         self.registry = registry
+        self.middleware = middleware
         self.hooks = hooks
     }
 
@@ -54,6 +58,26 @@ public actor ToolExecutor {
     public func invoke(_ invocation: ToolInvocation) async throws -> ToolResult {
         guard let descriptor = await registry.descriptor(named: invocation.toolName) else {
             throw ToolExecutorError.unknownTool(name: invocation.toolName)
+        }
+
+        let authorizationContext = AgentToolInvocationContext(
+            descriptor: descriptor,
+            invocation: invocation
+        )
+        let decision = try await middleware.authorizeToolInvocation(authorizationContext)
+        switch decision {
+        case .allow:
+            await middleware.recordAuditEvent(
+                .toolAllowed(.init(context: authorizationContext))
+            )
+        case .deny(let reason):
+            await middleware.recordAuditEvent(
+                .toolDenied(.init(context: authorizationContext, reason: reason))
+            )
+            throw AgentRuntimeError.toolCallDenied(
+                toolName: descriptor.name,
+                reason: reason
+            )
         }
 
         for hook in hooks {

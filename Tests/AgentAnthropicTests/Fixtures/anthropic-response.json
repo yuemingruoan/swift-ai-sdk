@@ -12,11 +12,7 @@
       "id": "toolu_123",
       "name": "lookup_weather",
       "input": {
-        "city": {
-          "string": {
-            "_0": "Paris"
-          }
-        }
+        "city": "Paris"
       }
     }
   ],

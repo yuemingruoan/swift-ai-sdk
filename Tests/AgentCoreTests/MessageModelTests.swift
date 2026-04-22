@@ -95,4 +95,26 @@ struct MessageModelTests {
 
         #expect(decoded == event)
     }
+
+    @Test func tool_value_round_trips_plain_json_shapes() throws {
+        let value: ToolValue = .object([
+            "city": .string("Paris"),
+            "temperature": .integer(22),
+            "confidence": .number(0.9),
+            "alerts": .array([.string("sunny"), .boolean(false)]),
+            "extra": .null,
+        ])
+
+        let data = try JSONEncoder().encode(value)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["city"] as? String == "Paris")
+        #expect(object["temperature"] as? Int == 22)
+        #expect(object["confidence"] as? Double == 0.9)
+        let alerts = try #require(object["alerts"] as? [Any])
+        #expect(alerts.count == 2)
+        #expect(object.keys.contains("extra"))
+
+        let decoded = try JSONDecoder().decode(ToolValue.self, from: data)
+        #expect(decoded == value)
+    }
 }

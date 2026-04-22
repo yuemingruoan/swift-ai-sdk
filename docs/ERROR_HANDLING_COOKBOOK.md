@@ -170,4 +170,4 @@ This cookbook does not prescribe:
 - exact retry counts for every product
 - telemetry schema design
 - provider-specific moderation or abuse handling
-- middleware/policy behavior planned for later roadmap milestones
+- runtime middleware/policy behavior such as tool denial now surfaces through `AgentRuntimeError`

@@ -20,12 +20,15 @@ release line.
 - [TRANSPORT_FAMILY_MATRIX.md](TRANSPORT_FAMILY_MATRIX.md): transport-family
   comparison across direct, authenticated, HTTP, SSE, realtime, and WebSocket
   surfaces
+- [MIDDLEWARE_GUIDE.md](MIDDLEWARE_GUIDE.md): runtime middleware boundaries,
+  injection points, and Anthropic streaming integration notes
 
 ## Localized References
 
 - [SDK_ERRORS_AND_TRANSPORT.zh-CN.md](SDK_ERRORS_AND_TRANSPORT.zh-CN.md)
 - [ERROR_HANDLING_COOKBOOK.zh-CN.md](ERROR_HANDLING_COOKBOOK.zh-CN.md)
 - [TRANSPORT_FAMILY_MATRIX.zh-CN.md](TRANSPORT_FAMILY_MATRIX.zh-CN.md)
+- [MIDDLEWARE_GUIDE.zh-CN.md](MIDDLEWARE_GUIDE.zh-CN.md)
 
 ## Notes
 

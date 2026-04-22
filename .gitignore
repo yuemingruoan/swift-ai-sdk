@@ -32,6 +32,8 @@ playground.xcworkspace
 .build/
 .swiftpm/
 .vscode/
+.env
+.env.*
 request.folder/
 docs/superpowers/plans/
 .DS_Store

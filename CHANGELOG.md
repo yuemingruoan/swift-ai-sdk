@@ -9,7 +9,21 @@ and the project follows semantic versioning for the SwiftPM version surface.
 
 ### Changed
 
-- placeholder for post-`v0.1.1` development
+- placeholder for post-`v0.2.0` development
+
+## [v0.2.0] - 2026-04-22
+
+### Added
+
+- shared runtime middleware in `AgentCore`, including request/response interception, tool authorization, message redaction, and structured audit events
+- Anthropic Messages SSE streaming transport, raw streaming event model, projected streaming helper, and turn-runner streaming support
+- coverage for middleware behavior, Anthropic streaming transport decoding, Anthropic streaming tool-loop follow-up, and runner-level streaming integration
+- release-facing middleware documentation and an Anthropic example smoke path for streaming plus middleware
+
+### Changed
+
+- `ToolExecutor`, `AgentSessionRunner`, `RecordingAgentTurnRunner`, OpenAI turn runners, and Anthropic turn runners now accept the shared `AgentMiddlewareStack`
+- provider and transport documentation now reflect Anthropic streaming support, the current middleware surface, and the raw-versus-projected thinking boundary
 
 ## [v0.1.1] - 2026-04-22
 

@@ -1,11 +1,12 @@
 # swift-ai-sdk Roadmap
 
-This roadmap tracks the next public checkpoints after `v0.1.0`.
+This roadmap tracks the next public checkpoints after `v0.2.0`.
 
 ## Current Baseline
 
-- `v0.1.0` is the first public SwiftPM release
-- `main` is the active development branch after `v0.1.0`
+- `v0.2.0` is the current public SwiftPM release
+- `v0.1.0` remains the first public SwiftPM release
+- `main` is the active development branch after `v0.2.0`
 - the repository currently positions itself as provider-neutral runtime
   infrastructure, not a feature-complete end-user SDK
 
@@ -24,23 +25,25 @@ Focus: improve reliability and release governance without widening scope.
 - introduce SDK-facing typed error taxonomy
 - introduce shared HTTP transport configuration for OpenAI and Anthropic
 
+Released on 2026-04-22.
+
 ## v0.2.0 Provider Parity And Governance
 
-Focus: strengthen the provider-neutral runtime story without expanding into
-every product concern at once.
+Focus: release the provider-parity and governance baseline without widening
+scope into broader productization work.
 
-- add Anthropic streaming support using the existing provider-neutral stream
+Released on 2026-04-22 with:
+
+- Anthropic Messages SSE streaming using the existing provider-neutral stream
   event model
-- add policy and middleware capabilities above the current observational hooks
-- keep default behavior zero-cost when no middleware is installed
-
-Expected middleware surface:
-
-- intercept model requests before dispatch
-- inspect model responses after completion
-- authorize or deny tool calls
-- redact persisted or emitted messages
-- record audit events
+- shared runtime middleware with zero extra behavior when the stack is empty
+- split middleware surfaces for model request, model response, tool
+  authorization, message redaction, and structured audit events
+- shared middleware integration across `ToolExecutor`, high-level runners,
+  session state updates, and recording persistence wrappers
+- explicit raw-versus-projected handling for Anthropic `thinking` blocks so
+  low-level interfaces preserve provider payloads while convenience APIs can
+  omit or retain thinking by configuration
 
 ## v0.3.0 Productization
 

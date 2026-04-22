@@ -381,6 +381,7 @@ extension URLSession: OpenAIWebSocketSession {
 }
 
 public actor OpenAIRealtimeWebSocketClient {
+    public let configuration: OpenAIRealtimeConfiguration
     private let builder: OpenAIRealtimeRequestBuilder
     private let session: any OpenAIWebSocketSession
     private var connection: (any OpenAIWebSocketConnection)?
@@ -389,6 +390,7 @@ public actor OpenAIRealtimeWebSocketClient {
         configuration: OpenAIRealtimeConfiguration,
         session: any OpenAIWebSocketSession = URLSession.shared
     ) {
+        self.configuration = configuration
         self.builder = OpenAIRealtimeRequestBuilder(configuration: configuration)
         self.session = session
     }

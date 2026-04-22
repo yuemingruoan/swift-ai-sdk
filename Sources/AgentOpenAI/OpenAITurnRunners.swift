@@ -36,6 +36,7 @@ public struct OpenAIResponsesTurnRunner: AgentTurnRunner, Sendable {
     public let client: OpenAIResponsesClient
     public let configuration: OpenAIResponsesTurnRunnerConfiguration
     public let executor: ToolExecutor?
+    public let middleware: AgentMiddlewareStack
 
     /// Creates a one-turn Responses runner.
     /// - Parameters:
@@ -45,11 +46,13 @@ public struct OpenAIResponsesTurnRunner: AgentTurnRunner, Sendable {
     public init(
         client: OpenAIResponsesClient,
         configuration: OpenAIResponsesTurnRunnerConfiguration,
-        executor: ToolExecutor? = nil
+        executor: ToolExecutor? = nil,
+        middleware: AgentMiddlewareStack = AgentMiddlewareStack()
     ) {
         self.client = client
         self.configuration = configuration
         self.executor = executor
+        self.middleware = middleware
     }
 
     /// Runs one Responses turn and yields provider-neutral events.
@@ -57,27 +60,146 @@ public struct OpenAIResponsesTurnRunner: AgentTurnRunner, Sendable {
     /// - Returns: A stream of provider-neutral events emitted for the turn.
     /// - Throws: An error if the request cannot be constructed from the supplied messages.
     public func runTurn(input: [AgentMessage]) throws -> AsyncThrowingStream<AgentStreamEvent, Error> {
-        let request = try OpenAIResponseRequest(
-            model: configuration.model,
-            messages: input,
-            previousResponseID: configuration.previousResponseID,
-            stream: configuration.stream,
-            tools: configuration.tools,
-            toolChoice: configuration.toolChoice
-        )
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let requestContext = try await prepareRequestContext(input: input)
+                    let request = try OpenAIResponseRequest(
+                        model: requestContext.model,
+                        messages: requestContext.input,
+                        previousResponseID: configuration.previousResponseID,
+                        stream: requestContext.stream,
+                        tools: requestContext.tools,
+                        toolChoice: configuration.toolChoice
+                    )
 
-        if let executor {
-            return client.projectedResponseEvents(
-                request,
-                using: executor,
-                stream: configuration.stream
+                    if let executor {
+                        let baseStream = client.projectedResponseEvents(
+                            request,
+                            using: executor,
+                            stream: requestContext.stream
+                        )
+                        try await streamProcessedEvents(
+                            from: baseStream,
+                            model: requestContext.model,
+                            into: continuation
+                        )
+                        return
+                    }
+
+                    if requestContext.stream {
+                        let baseStream = client.projectedResponseEvents(
+                            request,
+                            stream: true
+                        )
+
+                        try await streamProcessedEvents(
+                            from: baseStream,
+                            model: requestContext.model,
+                            into: continuation
+                        )
+                        return
+                    }
+
+                    let projection = try await client.createProjectedResponse(request)
+                    try await emitProcessedResponse(
+                        messages: projection.messages,
+                        toolCalls: projection.toolCalls.map {
+                            AgentToolCall(callID: $0.callID, invocation: $0.invocation)
+                        },
+                        model: requestContext.model,
+                        into: continuation
+                    )
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
+
+    private func prepareRequestContext(
+        input: [AgentMessage]
+    ) async throws -> AgentModelRequestContext {
+        let context = try await middleware.prepareModelRequest(
+            AgentModelRequestContext(
+                provider: .openAI,
+                model: configuration.model,
+                input: input,
+                tools: configuration.tools,
+                stream: configuration.stream,
+                metadata: [
+                    "previousResponseID": configuration.previousResponseID ?? "",
+                    "toolChoice": configuration.toolChoice.map(String.init(describing:)) ?? "",
+                ]
             )
+        )
+        await middleware.recordAuditEvent(.modelRequestStarted(.init(context: context)))
+        return context
+    }
+
+    private func emitProcessedResponse(
+        messages: [AgentMessage],
+        toolCalls: [AgentToolCall],
+        model: String,
+        into continuation: AsyncThrowingStream<AgentStreamEvent, Error>.Continuation
+    ) async throws {
+        let context = try await middleware.processModelResponse(
+            AgentModelResponseContext(
+                provider: .openAI,
+                model: model,
+                messages: messages,
+                toolCalls: toolCalls
+            )
+        )
+        await middleware.recordAuditEvent(.modelResponseCompleted(.init(context: context)))
+
+        for toolCall in context.toolCalls {
+            continuation.yield(.toolCall(toolCall))
+        }
+        if !context.messages.isEmpty {
+            continuation.yield(.messagesCompleted(context.messages))
+        }
+    }
+
+    private func streamProcessedEvents(
+        from baseStream: AsyncThrowingStream<AgentStreamEvent, Error>,
+        model: String,
+        into continuation: AsyncThrowingStream<AgentStreamEvent, Error>.Continuation
+    ) async throws {
+        var toolCalls: [AgentToolCall] = []
+
+        for try await event in baseStream {
+            switch event {
+            case .toolCall(let toolCall):
+                toolCalls.append(toolCall)
+                continuation.yield(.toolCall(toolCall))
+
+            case .messagesCompleted(let messages):
+                let context = try await middleware.processModelResponse(
+                    AgentModelResponseContext(
+                        provider: .openAI,
+                        model: model,
+                        messages: messages,
+                        toolCalls: toolCalls
+                    )
+                )
+                await middleware.recordAuditEvent(.modelResponseCompleted(.init(context: context)))
+                if !context.messages.isEmpty {
+                    continuation.yield(.messagesCompleted(context.messages))
+                }
+                toolCalls.removeAll()
+
+            default:
+                continuation.yield(event)
+            }
         }
 
-        return client.projectedResponseEvents(
-            request,
-            stream: configuration.stream
-        )
+        continuation.finish()
     }
 }
 
@@ -108,6 +230,7 @@ public actor OpenAIRealtimeTurnRunner: AgentTurnRunner {
     public let client: OpenAIRealtimeWebSocketClient
     public let configuration: OpenAIRealtimeTurnRunnerConfiguration
     public let executor: ToolExecutor?
+    public let middleware: AgentMiddlewareStack
     private var isConnected = false
 
     /// Creates a one-turn Realtime runner.
@@ -118,11 +241,13 @@ public actor OpenAIRealtimeTurnRunner: AgentTurnRunner {
     public init(
         client: OpenAIRealtimeWebSocketClient,
         configuration: OpenAIRealtimeTurnRunnerConfiguration = .init(),
-        executor: ToolExecutor? = nil
+        executor: ToolExecutor? = nil,
+        middleware: AgentMiddlewareStack = AgentMiddlewareStack()
     ) {
         self.client = client
         self.configuration = configuration
         self.executor = executor
+        self.middleware = middleware
     }
 
     /// Runs one Realtime turn against a connected session.
@@ -135,15 +260,19 @@ public actor OpenAIRealtimeTurnRunner: AgentTurnRunner {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
+                    let requestContext = try await self.prepareRequestContext(input: input)
                     try await self.ensureConnected()
-                    try await self.configureSessionIfNeeded()
-                    for message in input {
+                    try await self.configureSessionIfNeeded(tools: requestContext.tools)
+                    for message in requestContext.input {
                         try await self.send(message: message)
                     }
                     try await self.client.createResponse()
 
                     let events = try await self.client.receiveUntilTurnFinished(using: self.executor)
-                    for event in events {
+                    for event in try await self.processResponseEvents(
+                        events,
+                        model: requestContext.model
+                    ) {
                         continuation.yield(event)
                     }
                     continuation.finish()
@@ -160,16 +289,36 @@ public actor OpenAIRealtimeTurnRunner: AgentTurnRunner {
 }
 
 private extension OpenAIRealtimeTurnRunner {
+    func prepareRequestContext(
+        input: [AgentMessage]
+    ) async throws -> AgentModelRequestContext {
+        let context = try await middleware.prepareModelRequest(
+            AgentModelRequestContext(
+                provider: .openAI,
+                model: client.configuration.model,
+                input: input,
+                tools: configuration.tools,
+                stream: true,
+                metadata: [
+                    "instructions": configuration.instructions ?? "",
+                    "toolChoice": configuration.toolChoice.map(String.init(describing:)) ?? "",
+                ]
+            )
+        )
+        await middleware.recordAuditEvent(.modelRequestStarted(.init(context: context)))
+        return context
+    }
+
     func ensureConnected() async throws {
         guard !isConnected else { return }
         try await client.connect()
         isConnected = true
     }
 
-    func configureSessionIfNeeded() async throws {
+    func configureSessionIfNeeded(tools: [ToolDescriptor]) async throws {
         let shouldUpdateSession =
             configuration.instructions != nil ||
-            !configuration.tools.isEmpty ||
+            !tools.isEmpty ||
             configuration.toolChoice != nil
 
         guard shouldUpdateSession else {
@@ -179,7 +328,7 @@ private extension OpenAIRealtimeTurnRunner {
         try await client.updateSession(
             .init(
                 instructions: configuration.instructions,
-                tools: configuration.tools,
+                tools: tools,
                 toolChoice: configuration.toolChoice
             )
         )
@@ -195,5 +344,41 @@ private extension OpenAIRealtimeTurnRunner {
                 description: "unsupported realtime message role: \(message.role.rawValue)"
             )
         }
+    }
+
+    func processResponseEvents(
+        _ events: [AgentStreamEvent],
+        model: String
+    ) async throws -> [AgentStreamEvent] {
+        var toolCalls: [AgentToolCall] = []
+        var processedEvents: [AgentStreamEvent] = []
+
+        for event in events {
+            switch event {
+            case .toolCall(let toolCall):
+                toolCalls.append(toolCall)
+                processedEvents.append(.toolCall(toolCall))
+
+            case .messagesCompleted(let messages):
+                let context = try await middleware.processModelResponse(
+                    AgentModelResponseContext(
+                        provider: .openAI,
+                        model: model,
+                        messages: messages,
+                        toolCalls: toolCalls
+                    )
+                )
+                await middleware.recordAuditEvent(.modelResponseCompleted(.init(context: context)))
+                if !context.messages.isEmpty {
+                    processedEvents.append(.messagesCompleted(context.messages))
+                }
+                toolCalls.removeAll()
+
+            default:
+                processedEvents.append(event)
+            }
+        }
+
+        return processedEvents
     }
 }
